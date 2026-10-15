@@ -38,19 +38,24 @@ const c = {
 };
 
 let step = 0;
+let accountId = process.env.CLOUDFLARE_ACCOUNT_ID || ''; // 选中的账号（多账号时注入子进程环境）
 function banner(title) {
   step += 1;
   console.log(`\n${c.bold(c.cyan(`[步骤 ${step}] ${title}`))}`);
 }
+/** 子进程环境：多账号选择后把 CLOUDFLARE_ACCOUNT_ID 注入，让所有 wrangler 命令落在该账号。 */
+function env() {
+  return accountId ? { ...process.env, CLOUDFLARE_ACCOUNT_ID: accountId } : process.env;
+}
 /** 执行 wrangler 子命令（args = ['d1','list','--json']），返回 {code,stdout,stderr}。 */
 function run(args, opts = {}) {
-  const r = spawnSync(WRANGLER[0], [...WRANGLER.slice(1), ...args], { cwd: ROOT, encoding: 'utf8', shell: process.platform === 'win32', ...opts });
+  const r = spawnSync(WRANGLER[0], [...WRANGLER.slice(1), ...args], { cwd: ROOT, encoding: 'utf8', shell: process.platform === 'win32', env: env(), ...opts });
   return { code: r.status, stdout: r.stdout || '', stderr: r.stderr || '' };
 }
 /** 流式执行 wrangler 子命令（实时回显），返回合并输出。 */
 function runLive(args, { input } = {}) {
   return new Promise((resolve) => {
-    const child = spawn(WRANGLER[0], [...WRANGLER.slice(1), ...args], { cwd: ROOT, shell: process.platform === 'win32' });
+    const child = spawn(WRANGLER[0], [...WRANGLER.slice(1), ...args], { cwd: ROOT, shell: process.platform === 'win32', env: env() });
     let out = '';
     // wrangler 输出带 ANSI 颜色/OSC8 超链接转义码，会把 URL 匹配搞坏——
     // 回显用原文，解析用剥离后的纯文本
@@ -78,17 +83,56 @@ async function main() {
   const ok0 = await ask('已了解并继续？(回车继续 / Ctrl+C 退出)');
   if (ok0 === undefined) return;
 
-  // ---------- 1. 登录状态 ----------
-  banner('检查 Cloudflare 登录状态');
-  let who = run(['whoami']);
-  const loggedIn = who.code === 0 && /You are logged in|logged in with/i.test(who.stdout + who.stderr);
-  if (!loggedIn) {
-    console.log(c.yellow('尚未登录 Cloudflare，正在打开浏览器授权…（在浏览器里点击 Allow 即可）'));
+  // ---------- 1. 登录状态 / 账号选择 ----------
+  banner('Cloudflare 账号（登录 / 选择 / 注销）');
+  const whoamiAccounts = () => {
+    const w = run(['whoami']);
+    const text = w.stdout + w.stderr;
+    const ok = w.code === 0 && /You are logged in|logged in with/i.test(text);
+    // 解析 whoami 的账号表（Account Name | Account ID），支持一个 OAuth 账号下多个 Cloudflare 账号；
+    // 行尾允许封闭竖线（表格边框）
+    const accounts = [...text.matchAll(/^\s*(.+?)\s+[│|]\s+([0-9a-f]{32})\s*[│|]?\s*$/gim)]
+      .map((m) => ({ name: m[1].replace(/^[│|]\s*/, '').trim(), id: m[2] }));
+    return { ok, text, accounts };
+  };
+  const doLogin = async () => {
+    console.log(c.yellow('正在打开浏览器授权…（在浏览器里登录并点击 Allow）'));
     const login = await runLive(['login']);
-    if (login.code !== 0) { console.error(c.red('登录失败，请重跑本脚本。')); rl.close(); return; }
+    if (login.code !== 0) { console.error(c.red('登录失败，请重跑本脚本。')); rl.close(); return false; }
+    return true;
+  };
+
+  let state = whoamiAccounts();
+  if (!state.ok) {
+    console.log(c.yellow('尚未登录 Cloudflare。'));
+    if (!(await doLogin())) return;
+    state = whoamiAccounts();
   } else {
     console.log(c.green('✔ 已登录'));
+    console.log('  1) 继续使用当前账号');
+    console.log('  2) 注销并登录其他账号（多账号测试用）');
+    const op = (await ask('选择操作（回车 = 1）：')).trim();
+    if (op === '2') {
+      run(['logout']);
+      console.log(c.green('✔ 已注销本机凭据'));
+      if (!(await doLogin())) return;
+      state = whoamiAccounts();
+    }
   }
+
+  // OAuth 登录可能关联多个 Cloudflare 账号（个人 / 工作区…）：选一个作为本次部署目标
+  if (state.accounts.length > 1) {
+    console.log(c.bold('当前凭据关联多个 Cloudflare 账号：'));
+    state.accounts.forEach((a, i) => console.log(`  ${i + 1}) ${a.name}  ${c.dim(a.id)}`));
+    const pick = (await ask('选择本次部署使用的账号（回车 = 1）：')).trim();
+    const idx = parseInt(pick, 10);
+    const chosen = state.accounts[Number.isInteger(idx) && idx >= 1 && idx <= state.accounts.length ? idx - 1 : 0];
+    accountId = chosen.id;
+    console.log(c.green(`✔ 本次部署使用账号：${chosen.name}`));
+  } else if (state.accounts.length === 1) {
+    accountId = state.accounts[0].id;
+  }
+  // 注：选定的 accountId 会注入后续所有 wrangler 命令（建库/部署都落在该账号）
 
   // ---------- 2. D1 数据库 ----------
   banner(`创建 D1 数据库「${DB_NAME}」`);
