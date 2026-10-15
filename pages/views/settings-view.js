@@ -105,10 +105,9 @@ async function renderSyncCard(host) {
     `);
     host.querySelector('#d1Save').addEventListener('click', async () => {
       if (!(await saveConfigForm(host, 'd1New', null))) return;
-      toast('已保存配置，正在下载云端数据到本地（不会上传本机数据）…');
-      const sync = await sendD1({ type: 'd1SyncPull' });
-      if (!sync.ok && sync.error) toast('首次下载失败：' + sync.error, true);
-      else toast('首次同步完成。想把本机数据推送到云端，请用「同步到云」。');
+      // 仅保存连接参数，不自动下载——同步方向始终由用户手动触发（与"只手动同步"的
+      // 总原则一致）：首次想取云端数据，请用户自己点「↓ 同步到本地」。
+      toast('连接参数已保存。要拉取云端数据，请点「↓ 同步到本地」；要上传本机数据，请点「↑ 同步到云」。');
       await renderSyncCard(host);
     });
     return;
