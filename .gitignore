@@ -1,0 +1,28 @@
+# ===== 本地工具数据（勿上传）=====
+.workbuddy/
+.codegraph/
+.zcode/
+private/
+
+# ===== 系统文件 =====
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# ===== 依赖与构建产物 =====
+node_modules/
+*.zip
+dist/
+build/
+.wrangler/
+
+# ===== 编辑器 / IDE =====
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ===== 日志与环境变量 =====
+*.log
+.env
+.env.*

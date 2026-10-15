@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>浏览历史记录</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <img class="brand-mark" src="../icons/icon48.png" alt="" draggable="false">
+    <strong>浏览库</strong>
+    <span id="recState" class="rec-state"></span>
+  </header>
+
+  <div class="stats" id="stats">加载中…</div>
+
+  <div class="search-row">
+    <input type="search" id="quickSearch" placeholder="搜索历史记录（标题 / URL）…">
+    <button id="goSearch" class="btn">搜索</button>
+  </div>
+
+  <div class="recent-head">最近访问</div>
+  <ul id="recentList"></ul>
+
+  <footer>
+    <button id="openDash" class="btn primary">打开历史记录</button>
+  </footer>
+
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

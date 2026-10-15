@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OneTab 云端标签</title>
+<style>
+  :root { --text-color: #222; --text-color-weak: #666; --link: #1a0dab; }
+  body { margin: 0; font-family: 'Open Sans', 'Segoe UI', Arial, sans-serif; color: var(--text-color); background: #fff; line-height: 1.45; }
+  #contentAreaDiv { max-width: 980px; margin: 0 auto; padding: 22px 28px 44px; }
+  #headerText { font-size: 16px; color: var(--text-color-weak); font-weight: 300; margin-bottom: 8px; padding-bottom: 14px; }
+  .tabGroup { margin-top: 16px; background: #fff; }
+  .tabGroupHeader { padding: 14px 0 10px; }
+  .tabGroupHeaderRow { display: flex; align-items: baseline; gap: 42px; flex-wrap: wrap; }
+  .tabGroupTitleText { font-size: 24px; font-weight: 300; word-break: break-word; margin-bottom: 0; }
+  .tabCountInline { display: inline-block; color: var(--text-color-weak); font-size: 24px; font-weight: 300; }
+  .createdDate { display: block; color: var(--text-color-weak); font-size: 11px; margin-top: 2px; }
+  .tabList { padding: 4px 0 8px; }
+  .tab { padding: 2px 16px 2px 18px; font-size: 13px; word-break: break-word; }
+  .innerGroupTitleText { padding: 4px 16px 1px 18px; font-size: 16px; font-weight: 300; color: var(--text-color); word-break: break-word; }
+  .innerGroupBlock { margin-bottom: 10px; }
+  .innerGroupBlock:last-child { margin-bottom: 0; }
+  .innerGroupNotes { padding: 0 16px 2px 18px; font-size: 11px; color: var(--text-color-weak); white-space: pre-wrap; word-break: break-word; unicode-bidi: plaintext; }
+  .tabLink { text-decoration: none; color: var(--link); }
+  .tabLink:hover { text-decoration: underline; }
+  .tabNotes { font-size: 11px; color: var(--text-color-weak); margin-top: 2px; white-space: pre-wrap; unicode-bidi: plaintext; }
+  #emptyState { margin-top: 30px; color: var(--text-color-weak); font-size: 13px; }
+  #d1form { border: 1px solid #ddd; border-radius: 8px; padding: 12px 16px; margin-bottom: 18px; font-size: 13px; }
+  #d1form input, #d1form select { padding: 6px 8px; border: 1px solid #ccc; border-radius: 6px; font-size: 13px; margin: 4px 6px 4px 0; }
+  #d1form button { padding: 6px 14px; border: none; border-radius: 6px; background: #2b6cb0; color: #fff; cursor: pointer; font-size: 13px; }
+  #d1status { margin-top: 6px; color: var(--text-color-weak); white-space: pre-wrap; }
+  #d1err { color: #b03a2e; }
+</style>
+</head>
+<body>
+<div id="contentAreaDiv">
+  <div id="d1form">
+    Access Token: <input id="ftoken" type="password" size="28">
+    加密口令: <input id="fkey" type="password" size="20">
+    <button id="fgo">载入云端标签</button>
+    <span id="fdev"></span>
+    <div id="d1status">数据在浏览器中用你的口令解密, 不经过服务器明文传输。</div>
+    <div id="d1err"></div>
+  </div>
+  <div id="headerText"></div>
+  <div id="tabGroupsDiv"><div id="emptyState">填写 Access Token 与加密口令后点击“载入云端标签”。也可以用 /view?token=...&amp;key=... 直接访问。</div></div>
+</div>
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var enc = new TextEncoder();
+  var NL = String.fromCharCode(10);
+  function escHtml(t) { return String(t == null ? "" : t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
+  function escAttr(t) { return String(t == null ? "" : t).replace(/&/g, "&amp;").replace(/"/g, "&quot;"); }
+  function b64ToBytes(b64) { var s = atob(b64); var b = new Uint8Array(s.length); for (var i = 0; i < s.length; i++) b[i] = s.charCodeAt(i); return b; }
+  async function deriveKey(pass) {
+    var salt = enc.encode("onetap-d1-sync-v1");
+    var base = await crypto.subtle.importKey("raw", enc.encode(pass), "PBKDF2", false, ["deriveKey"]);
+    return crypto.subtle.deriveKey({ name: "PBKDF2", salt: salt, iterations: 250000, hash: "SHA-256" }, base, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
+  }
+  async function gunzip(data) {
+    var ds = new DecompressionStream("gzip");
+    var w = ds.writable.getWriter(); w.write(data); w.close();
+    var chunks = []; var r = ds.readable.getReader();
+    for (;;) { var o = await r.read(); if (o.done) break; chunks.push(o.value); }
+    var total = 0; for (var i = 0; i < chunks.length; i++) total += chunks[i].length;
+    var out = new Uint8Array(total); var off = 0;
+    for (var j = 0; j < chunks.length; j++) { out.set(chunks[j], off); off += chunks[j].length; }
+    return out;
+  }
+  var SNAPS = [];
+  async function load() {
+    var token = $("ftoken").value.trim();
+    var pass = $("fkey").value;
+    if (!token || !pass) { $("d1err").textContent = "请填写 Access Token 和加密口令。"; return; }
+    localStorage.setItem("d1view_token", token);
+    localStorage.setItem("d1view_key", pass);
+    $("d1err").textContent = ""; $("d1status").textContent = "正在下载并解密…";
+    var res;
+    try {
+      res = await fetch("/pull", { headers: { Authorization: "Bearer " + token } });
+    } catch (e) { $("d1err").textContent = "网络错误: " + e.message; $("d1status").textContent = ""; return; }
+    if (!res.ok) { $("d1err").textContent = "拉取失败: HTTP " + res.status; $("d1status").textContent = ""; return; }
+    var data = await res.json();
+    if (!data.ok || !data.snapshots) { $("d1err").textContent = "响应异常"; $("d1status").textContent = ""; return; }
+    var key = await deriveKey(pass);
+    SNAPS = [];
+    for (var i = 0; i < data.snapshots.length; i++) {
+      var sn = data.snapshots[i];
+      if (!sn.blob) continue;
+      try {
+        var iv = b64ToBytes(sn.blob.iv);
+        var pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv: iv }, key, b64ToBytes(sn.blob.data));
+        var json = await gunzip(new Uint8Array(pt));
+        var obj = JSON.parse(new TextDecoder().decode(json));
+        SNAPS.push({ name: (sn.deviceName || sn.deviceId) + " @ " + new Date(sn.updatedAt).toLocaleString("zh-CN"), items: obj.items || [], bookmarks: obj.bookmarks || null });
+      } catch (e) { console.warn("decrypt failed", e); }
+    }
+    if (!SNAPS.length) { $("d1err").textContent = "没有可解密的快照(口令不对或云端为空)。"; $("d1status").textContent = ""; return; }
+    var sel = '<select id="fsnap">';
+    for (var k = 0; k < SNAPS.length; k++) sel += '<option value="' + k + '">' + escHtml(SNAPS[k].name) + '</option>';
+    sel += '</select>';
+    $("fdev").innerHTML = sel;
+    $("fsnap").addEventListener("change", function () { render(parseInt(this.value, 10) || 0); });
+    render(0);
+    $("d1status").textContent = "共 " + SNAPS.length + " 个设备的快照。";
+  }
+  function render(si) {
+    var snap = SNAPS[si];
+    if (!snap) return;
+    var byId = {};
+    var items = snap.items;
+    for (var i = 0; i < items.length; i++) if (items[i] && items[i].id) byId[items[i].id] = items[i];
+    var topIds = [];
+    if (byId["root"] && byId["root"].childIds) topIds = byId["root"].childIds;
+    else for (var j = 0; j < items.length; j++) {
+      var it = items[j];
+      if (it && it.type === "group" && it.parentIds && it.parentIds.indexOf("root") !== -1) topIds.push(it.id);
+    }
+    function countOf(it) {
+      if (!it) return 0;
+      if (it.type === "tab") return 1;
+      var n = 0;
+      var kids = it.childIds || [];
+      for (var k = 0; k < kids.length; k++) {
+        var c = byId[kids[k]];
+        if (c && c.type === "tab") n++;
+        else if (c && c.type === "group") n += countOf(c);
+      }
+      return n;
+    }
+    function renderChildren(it, level) {
+      var step = 20, out = "", idx = 0;
+      var kids = it.childIds || [];
+      for (var k = 0; k < kids.length; k++) {
+        var c = byId[kids[k]];
+        if (!c) continue;
+        var padA = level ? level * step : 0;
+        var padB = (level + 1) * step;
+        if (c.type === "tab") {
+          var notes = (c.notes && c.notes.text) ? '<div class="tabNotes">' + escHtml(c.notes.text) + '</div>' : '';
+          out += '<div class="tab" style="padding-inline-start: ' + padA + 'px;"><a class="tabLink" dir="auto" href="' + escAttr(c.url || '') + '">' + escHtml(c.title || c.url || '') + '</a>' + notes + '</div>';
+          idx++;
+        } else if (c.type === "group") {
+          out += '<div class="innerGroupBlock" style="margin-top: ' + (idx ? 8 : 2) + 'px;">' + NL +
+            '<div class="innerGroupTitleText" style="padding-inline-start: ' + padB + 'px;"><span dir="auto">' + escHtml(c.label || '') + '</span></div>';
+          if (c.notes && c.notes.text) out += '<div class="innerGroupNotes" style="padding-inline-start: ' + padB + 'px;">' + escHtml(c.notes.text) + '</div>';
+          out += renderChildren(c, level + 1);
+          out += '</div>';
+          idx++;
+        }
+      }
+      return out;
+    }
+    function renderGroup(it) {
+      var n = countOf(it);
+      var gtitle = escHtml(it.label || "");
+      var countText = n + " 个标签";
+      var created = it.createDate ? '<div class="createdDate">' + escHtml("创建于 " + new Date(it.createDate).toLocaleDateString("zh-CN")) + '</div>' : '';
+      return '<div class="tabGroup">' + NL +
+        '<div class="tabGroupHeader">' + NL +
+        '<div class="tabGroupHeaderRow">' + NL +
+        '<div class="tabGroupTitleText"><span dir="auto">' + (gtitle || countText) + '</span></div>' + NL +
+        (gtitle ? '<div class="tabCountInline">' + countText + '</div>' + NL : "") +
+        '</div>' + NL +
+        (created ? created + NL : "") +
+        '</div>' + NL +
+        '<div class="tabList">' + renderChildren(it, 0) + '</div>' + NL +
+        '</div>';
+    }
+    var blocks = [], total = 0;
+    for (var t = 0; t < topIds.length; t++) {
+      var g = byId[topIds[t]];
+      if (!g || g.type !== "group") continue;
+      blocks.push(renderGroup(g));
+      total += countOf(g);
+    }
+    var bodyHtml = blocks.length ? blocks.join(NL) : '<div id="emptyState">该快照暂无标签</div>';
+    // 书签整树快照（web-history 扩展同步的内容之一）
+    function countBookmarkNodes(nodes) {
+      var n = 0;
+      for (var i = 0; i < nodes.length; i++) {
+        if (nodes[i].url) n++;
+        if (nodes[i].children) n += countBookmarkNodes(nodes[i].children);
+      }
+      return n;
+    }
+    function renderBookmarkNodes(nodes, level) {
+      var step = 20, out = "";
+      for (var i = 0; i < nodes.length; i++) {
+        var n2 = nodes[i];
+        var padA = level * step;
+        if (n2.url) {
+          out += '<div class="tab" style="padding-inline-start: ' + padA + 'px;"><a class="tabLink" dir="auto" href="' + escAttr(n2.url) + '">' + escHtml(n2.title || n2.url) + '</a></div>';
+        } else if (n2.children) {
+          var padB = (level + 1) * step;
+          out += '<div class="innerGroupBlock" style="margin-top: ' + (i ? 8 : 2) + 'px;">' + NL +
+            '<div class="innerGroupTitleText" style="padding-inline-start: ' + padB + 'px;"><span dir="auto">' + escHtml(n2.title || "未命名文件夹") + '</span></div>' +
+            renderBookmarkNodes(n2.children, level + 1) + '</div>';
+        }
+      }
+      return out;
+    }
+    if (snap.bookmarks && snap.bookmarks.tree && snap.bookmarks.tree.length) {
+      var bmCount = countBookmarkNodes(snap.bookmarks.tree);
+      bodyHtml += '<div class="tabGroup">' + NL +
+        '<div class="tabGroupHeader">' + NL +
+        '<div class="tabGroupHeaderRow">' + NL +
+        '<div class="tabGroupTitleText"><span dir="auto">书签</span></div>' + NL +
+        '<div class="tabCountInline">' + bmCount + ' 个书签</div>' + NL +
+        '</div>' + NL +
+        '</div>' + NL +
+        '<div class="tabList">' + renderBookmarkNodes(snap.bookmarks.tree, 0) + '</div>' + NL +
+        '</div>';
+    }
+    $("headerText").textContent = "共 " + total + " 个标签 · " + snap.name;
+    $("tabGroupsDiv").innerHTML = bodyHtml;
+  }
+  var q = new URLSearchParams(location.search);
+  var qt = q.get("token"), qk = q.get("key");
+  if (qt) $("ftoken").value = qt;
+  if (qk) $("fkey").value = qk;
+  $("ftoken").value = $("ftoken").value || localStorage.getItem("d1view_token") || "";
+  $("fkey").value = $("fkey").value || localStorage.getItem("d1view_key") || "";
+  $("fgo").addEventListener("click", load);
+  if ($("ftoken").value && $("fkey").value) load();
+})();
+</script>
+</body>
+</html>

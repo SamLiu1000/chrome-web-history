@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="书签图标"><g transform="translate(-6.4 -6.4) scale(1.1)"><g transform="translate(12.8 0) scale(0.8 1)">
+  <defs>
+    <linearGradient id="front" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#E8661A"/><stop offset="1" stop-color="#A32A12"/>
+    </linearGradient>
+    <linearGradient id="back" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFD36B"/><stop offset="1" stop-color="#F0983A"/>
+    </linearGradient>
+    <linearGradient id="band" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFE08A"/><stop offset="1" stop-color="#FFB52E"/>
+    </linearGradient>
+    
+  </defs>
+
+  <!-- back bookmark (yellow, tilted) -->
+  <g transform="rotate(11 64 118)">
+    <path d="M40 8 H84 Q90 8 90 14 V112 L62 90 L34 112 V14 Q34 8 40 8 Z" fill="url(#back)"/>
+  </g>
+
+  <!-- front bookmark -->
+  <g transform="translate(-4 0)">
+    <path d="M36 10 H92 Q98 10 98 16 V118 L64 92 L30 118 V16 Q30 10 36 10 Z" fill="url(#front)"/>
+  </g>
+  <!-- yellow band near the top, like a book spine -->
+  <rect x="26" y="26" width="68" height="10" fill="url(#band)" clip-path="inset(0)"/>
+  <!-- highlight -->
+  <rect x="35" y="14" width="3.5" height="84" rx="1.7" fill="#FFFFFF" fill-opacity="0.35"/>
+</g></svg>

@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>垂直标签栏</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <header>
+    <img class="brand-mark" src="../icons/icon48.png" alt="" draggable="false">
+    <strong>垂直标签栏</strong>
+    <span id="tabCount" class="count"></span>
+    <span class="spacer"></span>
+    <button id="newTab" class="icon-btn" title="新建标签页">＋</button>
+    <button id="openDash" class="icon-btn" title="打开浏览历史记录">历史记录</button>
+  </header>
+
+  <div class="search-row">
+    <input type="search" id="tabSearch" placeholder="筛选打开的标签页（标题 / 网址）…">
+  </div>
+
+  <main id="tabList"></main>
+  <div id="emptyState" class="empty" hidden>没有打开的标签页</div>
+
+  <footer>拖拽排序 · 中键 / × 关闭 · 📌 固定 · 右键扩展图标可开关接管 · 侧栏可手动移到左侧</footer>
+
+  <script type="module" src="sidepanel.js"></script>
+</body>
+</html>

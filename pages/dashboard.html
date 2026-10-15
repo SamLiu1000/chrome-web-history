@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>浏览库</title>
+  <link rel="stylesheet" href="dashboard.css">
+  <!-- 收纳快照预热：与模块加载并行预读 IndexedDB（复用 db.js 单连接），
+       默认页签"收纳"的 render 就绪时快照已备好，注入零等待（与轻量页同款） -->
+  <script src="stash-preload.js"></script>
+  <!-- 预热首屏关键路径的全部模块：仪表盘入口 + 其静态依赖 + 默认页签"收纳标签页"的
+       整条静态 import 图。必须全覆盖——未提示的模块要等父模块解析完才被发现，
+       会多出串行请求轮次。其余页签（浏览/站点/书签/意外关闭/设置）是按需动态 import，不预热。 -->
+  <link rel="modulepreload" href="./dashboard.js">
+  <link rel="modulepreload" href="./views/stash.js">
+  <link rel="modulepreload" href="../lib/stash.js">
+  <link rel="modulepreload" href="../lib/db.js">
+  <link rel="modulepreload" href="../lib/util.js">
+  <link rel="modulepreload" href="../lib/dialog.js">
+  <link rel="modulepreload" href="../lib/toast.js">
+  <link rel="modulepreload" href="../lib/stash-export.js">
+  <link rel="modulepreload" href="../lib/d1-sync.js">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <img class="brand-mark" src="../icons/icon48.png" alt="" draggable="false">
+      <h1>浏览库</h1>
+    </div>
+    <div class="top-status" id="topStatus"></div>
+  </header>
+
+  <nav class="tabs" id="tabs">
+    <button class="tab active" data-tab="stash">标签页收藏</button>
+    <button class="tab" data-tab="browse">历史与书签</button>
+    <button class="tab" data-tab="tabs">意外关闭</button>
+    <button class="tab" data-tab="settings">设置</button>
+  </nav>
+
+  <main id="content">
+    <section id="view-browse" class="view">
+      <div class="mode-bar">
+        <div class="seg" id="browseModeSeg" title="切换浏览页的显示方式">
+          <button data-mode="browse" class="active">历史记录</button>
+          <button data-mode="sites">站点记录</button>
+          <button data-mode="bookmarks">书签</button>
+        </div>
+      </div>
+      <div id="browseHost" class="mode-host active"></div>
+      <div id="sitesHost" class="mode-host"></div>
+      <div id="bookmarksHost" class="mode-host"></div>
+    </section>
+    <section id="view-tabs" class="view"></section>
+    <section id="view-stash" class="view active">
+      <!-- 静态首帧骨架：与轻量页同款——dashboard.js 模块就绪、收纳视图 render 前
+           立即绘出布局（纯 HTML+CSS、零 JS），之后被 buildSkeleton() 整体替换。
+           只用类选择器；切换到其它页签再返回时不会重现（built 后不再重建）。 -->
+      <div class="st-skel" aria-hidden="true">
+        <aside class="st-skel-side">
+          <div class="st-skel-head"><span class="st-skel-bar st-skel-w48"></span><span class="st-skel-bar st-skel-w56"></span></div>
+          <span class="st-skel-line"></span>
+          <span class="st-skel-line st-skel-w80"></span>
+          <span class="st-skel-line st-skel-w64"></span>
+          <span class="st-skel-line st-skel-w88"></span>
+          <span class="st-skel-line st-skel-w72"></span>
+          <span class="st-skel-line st-skel-w80"></span>
+          <span class="st-skel-line st-skel-w56"></span>
+          <span class="st-skel-line st-skel-w88"></span>
+        </aside>
+        <div class="st-skel-main">
+          <div class="st-skel-toolbar">
+            <span class="st-skel-bar st-skel-grow"></span>
+            <span class="st-skel-bar st-skel-w56"></span>
+            <span class="st-skel-bar st-skel-w56"></span>
+            <span class="st-skel-bar st-skel-w48"></span>
+          </div>
+          <div class="st-skel-card">
+            <span class="st-skel-line st-skel-w40"></span>
+            <span class="st-skel-line"></span>
+            <span class="st-skel-line st-skel-w88"></span>
+            <span class="st-skel-line st-skel-w72"></span>
+          </div>
+          <div class="st-skel-card">
+            <span class="st-skel-line st-skel-w32"></span>
+            <span class="st-skel-line st-skel-w88"></span>
+            <span class="st-skel-line st-skel-w64"></span>
+          </div>
+          <div class="st-skel-loading"><span class="st-skel-spin"></span>正在加载…</div>
+        </div>
+      </div>
+    </section>
+    <section id="view-settings" class="view"></section>
+  </main>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <script type="module" src="dashboard.js"></script>
+</body>
+</html>
