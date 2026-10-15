@@ -132,7 +132,7 @@
   function foldHtml(title, count, kidsHtml, opts) {
     opts = opts || {};
     var id = "fold" + (++foldSeq);
-    return '<div class="fold fold-open" id="' + id + '">' + NL +
+    return '<div class="fold' + (opts.collapsed ? "" : " fold-open") + '" id="' + id + '">' + NL +
       '<div class="fold-row" data-fold="' + id + '">' + NL +
       '<span class="fold-caret">▶</span>' + NL +
       '<span class="fold-title"><span dir="auto">' + escHtml(title) + '</span></span>' + NL +
@@ -213,7 +213,7 @@
       for (var i = 0; i < nodes.length; i++) {
         var n2 = nodes[i];
         if (n2.url) out += '<div class="tab"><a class="tabLink" dir="auto" href="' + escAttr(n2.url) + '">' + escHtml(n2.title || n2.url) + '</a></div>';
-        else if (n2.children) out += foldHtml(n2.title || "未命名文件夹", countBookmarkNodes(n2.children) + " 个书签", buildKids(n2.children));
+        else if (n2.children) out += foldHtml(n2.title || "未命名文件夹", countBookmarkNodes(n2.children) + " 个书签", buildKids(n2.children), { collapsed: true });
       }
       return out;
     }
