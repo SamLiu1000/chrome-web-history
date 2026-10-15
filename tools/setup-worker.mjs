@@ -47,9 +47,11 @@ function banner(title) {
 function env() {
   return accountId ? { ...process.env, CLOUDFLARE_ACCOUNT_ID: accountId } : process.env;
 }
-/** 执行 wrangler 子命令（args = ['d1','list','--json']），返回 {code,stdout,stderr}。 */
+/** 执行 wrangler 子命令（args = ['d1','list','--json']），返回 {code,stdout,stderr}。
+ *  opts.input：写入子进程 stdin 的内容（如自动回答 logout 的 y/N 确认）。 */
 function run(args, opts = {}) {
-  const r = spawnSync(WRANGLER[0], [...WRANGLER.slice(1), ...args], { cwd: ROOT, encoding: 'utf8', shell: process.platform === 'win32', env: env(), ...opts });
+  const { input, ...rest } = opts;
+  const r = spawnSync(WRANGLER[0], [...WRANGLER.slice(1), ...args], { cwd: ROOT, encoding: 'utf8', shell: process.platform === 'win32', env: env(), input, ...rest });
   return { code: r.status, stdout: r.stdout || '', stderr: r.stderr || '' };
 }
 /** 流式执行 wrangler 子命令（实时回显），返回合并输出。 */
@@ -113,7 +115,9 @@ async function main() {
     console.log('  2) 注销并登录其他账号（多账号测试用）');
     const op = (await ask('选择操作（回车 = 1）：')).trim();
     if (op === '2') {
-      run(['logout']);
+      // logout 会弹 y/N 确认：管道模式下提示不可见且 stdin 关闭会卡死，自动回答 y
+      const out = run(['logout'], { input: 'y\n' });
+      if (out.code !== 0) console.log(c.dim('注销输出：' + (out.stdout + out.stderr).trim()));
       console.log(c.green('✔ 已注销本机凭据'));
       if (!(await doLogin())) return;
       state = whoamiAccounts();
