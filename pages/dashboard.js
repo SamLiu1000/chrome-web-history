@@ -215,6 +215,11 @@ function syncBrowseLayout() {
   if (document.fonts?.ready) document.fonts.ready.then(() => { syncHeaderH(); syncBrowseLayout(); });
   window.addEventListener('load', () => { syncHeaderH(); syncBrowseLayout(); });
   refreshTopStatus();
+  // 顶栏云同步快捷条：与设置页同一后台状态，未配置时自动渲染为空。
+  // 动态 import，不进首屏关键路径预热清单。
+  import('./views/sync-quick.js')
+    .then((m) => m.renderQuickBar(document.getElementById('syncQuick')))
+    .catch(() => {});
   // URL hash 支持：dashboard.html#browse?q=关键词 / #sites
   const [raw, query] = location.hash.replace(/^#/, '').split('?');
   // 旧锚点兼容：#data 已并入设置页
