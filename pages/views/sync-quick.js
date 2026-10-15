@@ -78,14 +78,32 @@ function reportResult(res, label) {
   toast(`${label}完成：${parts.join(' · ')}`);
 }
 
+function sleep(ms) { return new Promise((r2) => setTimeout(r2, ms)); }
+
+/** 读取同步状态，带重试：SW 冷启动时第一条消息可能丢失/超时（设置页是用户
+ *  点进去时 SW 已被唤醒，顶栏条是页面一打开就请求，更容易撞上冷启动）。 */
+async function getStateWithRetry() {
+  let last = null;
+  for (let i = 0; i < 4; i++) {
+    if (i) await sleep(300 * i); // 0 / 300 / 600 / 900ms
+    const r = await sendD1({ type: 'd1SyncGetState' });
+    // 注意：d1SyncGetState 的正常返回是 {config, state, tombstoneCount}，
+    // 不带 ok 字段（设置页也从不检查 r.ok）——这里以是否有 config 字段判定成功。
+    if (r && ('config' in r)) return r;
+    last = r;
+    console.warn(`[历史记录] 快捷条读取状态失败(第${i + 1}次)`, r && r.error);
+  }
+  return last;
+}
+
 async function render() {
   if (!host) return;
   // 立即显示占位：让"快捷条到底有没有跑起来"肉眼可判（而不是静默空白）
   setInnerHTML(host, '<span class="syncq-muted" style="font-size:11px;">云同步…</span>');
-  const r = await sendD1({ type: 'd1SyncGetState' });
-  if (!r.ok) {
-    setInnerHTML(host, '<span class="syncq-err" style="font-size:11px;" title="' + escapeHtml(r.error || '') + '">云同步条加载失败</span>');
-    console.warn('[历史记录] 快捷条读取状态失败', r.error);
+  const r = await getStateWithRetry();
+  if (!r || !('config' in r)) {
+    const msg = (r && r.error) || '未知错误';
+    setInnerHTML(host, '<span class="syncq-err syncq-err-text" title="' + escapeHtml(msg) + '">云同步条加载失败：' + escapeHtml(msg) + '</span>');
     return;
   }
   if (!r.config) {
