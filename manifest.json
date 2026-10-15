@@ -38,7 +38,7 @@
     }
   },
   "options_ui": {
-    "page": "pages/dashboard.html",
+    "page": "pages/dashboard.html#settings",
     "open_in_tab": true
   },
   "icons": {
