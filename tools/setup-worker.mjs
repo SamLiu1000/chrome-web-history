@@ -158,7 +158,8 @@ database_id = "${databaseId}"
     await runLive(['secret', 'put', 'SYNC_TOKEN', '--name', WORKER_NAME], { input: token + '\n' });
     deploy = await runLive(['deploy', '--config', 'private/wrangler.toml']);
   }
-  const urlMatch = deploy.out.match(/https:\/\/[a-z0-9-]+\.workers\.dev/i);
+  // 注意子域可有多段标签（<worker名>.<账户子域>.workers.dev），要用 [a-z0-9.-]+
+  const urlMatch = deploy.out.match(/https:\/\/[a-z0-9.-]+\.workers\.dev/i);
   if (deploy.code !== 0 || !urlMatch) {
     console.error(c.red('部署失败，请查看上方输出（常见原因：子域未创建——按提示访问 workers.dev 激活子域后重跑）。'));
     rl.close();
