@@ -219,7 +219,7 @@ function syncBrowseLayout() {
   // 动态 import，不进首屏关键路径预热清单。
   import('./views/sync-quick.js')
     .then((m) => m.renderQuickBar(document.getElementById('syncQuick')))
-    .catch(() => {});
+    .catch((e) => console.warn('[历史记录] 云同步快捷条加载失败', e));
   // URL hash 支持：dashboard.html#browse?q=关键词 / #sites
   const [raw, query] = location.hash.replace(/^#/, '').split('?');
   // 旧锚点兼容：#data 已并入设置页
