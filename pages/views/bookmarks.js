@@ -232,17 +232,20 @@ export async function render(container) {
     }
     const n = nodeMap.get(selectedId);
     if (!n) { detail.innerHTML = '<div class="empty-tip">请选择一个文件夹</div>'; displayedIds = []; return; }
-    const folders = (n.children || []).filter(isFolder);
-    const bks = (n.children || []).filter((c) => c.url);
-    displayedIds = [...folders.map((f) => f.id), ...bks.map((b) => b.id)];
+    // 混排渲染：严格保留 Chrome 原生 children 顺序（书签和文件夹可以交错），
+    // 不再按类型拆成"文件夹区 + 书签区"两段——那会凭空重排用户在书签管理器
+    // 里的排列，也导致拖拽落点(index)与视觉位置对不上。
+    const kids = n.children || [];
+    const folders = kids.filter(isFolder);
+    const bks = kids.filter((c) => c.url);
+    displayedIds = kids.map((c) => c.id);
     detail.innerHTML = `
       <div class="sd-head">
         <span class="sd-name">📁 ${escapeHtml(pathOf(n.id) || n.title)}</span>
         <span class="sd-meta">${bks.length} 个书签 · ${folders.length} 个子文件夹</span>
       </div>
-      ${folders.map((f) => flatFolderRowHtml(f)).join('')}
-      ${bks.map((b) => bookmarkRowHtml(b)).join('')}
-      ${(folders.length || bks.length) ? '' : '<div class="empty-tip">此文件夹是空的。点击上方"＋ 新建文件夹"，或在其它视图里点 ★ 收藏网址。</div>'}`;
+      ${kids.map((c) => (isFolder(c) ? flatFolderRowHtml(c) : bookmarkRowHtml(c))).join('')}
+      ${kids.length ? '' : '<div class="empty-tip">此文件夹是空的。点击上方"＋ 新建文件夹"，或在其它视图里点 ★ 收藏网址。</div>'}`;
   }
 
   function renderSummary() {
