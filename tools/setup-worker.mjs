@@ -170,12 +170,25 @@ async function main() {
     if (db) {
       console.log(c.green(`✔ 数据库已存在，复用（id=${db.uuid}）`));
     } else {
-      const created = await runLive(['d1', 'create', DB_NAME]);
+      // 建库时选主区域（决定数据主副本位置与读写延迟；仅建库时生效，建完不可改）
+      console.log('选择数据库主区域（影响读写延迟，建议离主要使用设备近的）：');
+      const locs = [
+        ['apac', '亚太（香港/新加坡，国内及东亚推荐）'],
+        ['wnam', '北美西部'],
+        ['enam', '北美东部'],
+        ['weur', '西欧'],
+        ['eeur', '东欧'],
+        ['oc',  '大洋洲'],
+      ];
+      locs.forEach(([k, d], i) => console.log(`  ${i + 1}) ${k.padEnd(5)} ${c.dim(d)}`));
+      const pick = (await ask('选择（回车 = 1 apac）：')).trim();
+      const loc = (locs[Number.isInteger(+pick) && +pick >= 1 && +pick <= locs.length ? +pick - 1 : 0])[0];
+      const created = await runLive(['d1', 'create', DB_NAME, '--location', loc]);
       list = run(['d1', 'list', '--json']);
       try { dbs = JSON.parse(list.stdout); } catch { /* 同上 */ }
       db = dbs.find((d) => d.name === DB_NAME);
       if (!db) { console.error(c.red('创建数据库失败，请查看上方输出。')); rl.close(); return; }
-      console.log(c.green(`✔ 创建成功（id=${db.uuid}）`));
+      console.log(c.green(`✔ 创建成功（id=${db.uuid}，主区域=${loc}）`));
     }
   }
   const databaseId = db.uuid || db.database_id;
