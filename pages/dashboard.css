@@ -112,6 +112,9 @@ html { scrollbar-gutter: stable; }
 .syncq-btn-ghost { border-color: transparent; color: var(--text-dim); }
 .syncq-btn-danger:hover { border-color: #c0392b; color: #c0392b; }
 .syncq-times { color: var(--text-dim); font-size: 11px; white-space: nowrap; }
+/* 末位「快照」按钮是无边框幽灵款：内边距会让按钮文字缩进 ~11px，
+   与上方状态行文字的右边缘错开——负外边距抵消，两者文字右对齐 */
+.syncq-bar .syncq-btn-ghost:last-child { padding-right: 0; margin-right: -10px; }
 .syncq-err { color: #c0392b; font-size: 11px; cursor: help; }
 
 /* 下拉浮层：绝对定位 + 阴影，不撑高 sticky topbar */
