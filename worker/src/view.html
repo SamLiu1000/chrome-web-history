@@ -52,8 +52,9 @@
   <div id="d1form">
     Access Token: <input id="ftoken" type="password" size="28">
     加密口令: <input id="fkey" type="password" size="20">
-    <button id="fgo">载入云端数据</button>
+    <button id="fgo">载入设备列表</button>
     <span id="fdev"></span>
+    <button id="fdl" hidden>下载解密</button>
     <div id="d1status">数据在浏览器中用你的口令解密, 不经过服务器明文传输。</div>
     <div id="d1err"></div>
   </div>
@@ -90,42 +91,68 @@
     return out;
   }
   var SNAPS = [];
+  var curToken = "";
+  var curPass = "";
+  var curName = "";
+  // 第一步：只拉设备快照列表(/health, 不含数据), 供用户选择
   async function load() {
     var token = $("ftoken").value.trim();
     var pass = $("fkey").value;
     if (!token || !pass) { $("d1err").textContent = "请填写 Access Token 和加密口令。"; return; }
     localStorage.setItem("d1view_token", token);
     localStorage.setItem("d1view_key", pass);
-    $("d1err").textContent = ""; $("d1status").textContent = "正在下载并解密…";
+    curToken = token; curPass = pass;
+    $("d1err").textContent = ""; $("d1status").textContent = "正在获取设备列表…";
     var res;
     try {
-      res = await fetch("/pull", { headers: { Authorization: "Bearer " + token } });
+      res = await fetch("/health", { headers: { Authorization: "Bearer " + token } });
+    } catch (e) { $("d1err").textContent = "网络错误: " + e.message; $("d1status").textContent = ""; return; }
+    if (!res.ok) { $("d1err").textContent = "获取列表失败: HTTP " + res.status; $("d1status").textContent = ""; return; }
+    var data = await res.json();
+    if (!data.ok || !data.devices) { $("d1err").textContent = "响应异常"; $("d1status").textContent = ""; return; }
+    if (!data.devices.length) { $("d1err").textContent = "云端暂无任何设备快照。"; $("d1status").textContent = ""; return; }
+    SNAPS = data.devices; // [{device_name, updated_at}]
+    var sel = '<select id="fsnap">';
+    for (var k = 0; k < SNAPS.length; k++) {
+      var d = SNAPS[k];
+      sel += '<option value="' + k + '">' + escHtml((d.device_name || "?") + " @ " + new Date(d.updated_at).toLocaleString("zh-CN")) + '</option>';
+    }
+    sel += '</select>';
+    $("fdev").innerHTML = sel;
+    $("fdl").hidden = false;
+    $("d1status").textContent = "共 " + SNAPS.length + " 个设备快照, 选中后点击「下载解密」查看。";
+  }
+  // 第二步：仅下载并解密选中的那一份快照(/pull?name=...)
+  async function downloadOne() {
+    var sel = $("fsnap");
+    if (!sel) { $("d1err").textContent = "请先载入设备列表。"; return; }
+    var idx = parseInt(sel.value, 10) || 0;
+    var dev = SNAPS[idx];
+    if (!dev) return;
+    var pass = $("fkey").value;
+    if (!curToken || !pass) { $("d1err").textContent = "请填写 Access Token 和加密口令。"; return; }
+    $("d1err").textContent = ""; $("d1status").textContent = "正在下载并解密「" + (dev.device_name || "?") + "」…";
+    var res;
+    try {
+      res = await fetch("/pull?name=" + encodeURIComponent(dev.device_name || ""), { headers: { Authorization: "Bearer " + curToken } });
     } catch (e) { $("d1err").textContent = "网络错误: " + e.message; $("d1status").textContent = ""; return; }
     if (!res.ok) { $("d1err").textContent = "拉取失败: HTTP " + res.status; $("d1status").textContent = ""; return; }
     var data = await res.json();
-    if (!data.ok || !data.snapshots) { $("d1err").textContent = "响应异常"; $("d1status").textContent = ""; return; }
-    var key = await deriveKey(pass);
-    SNAPS = [];
-    for (var i = 0; i < data.snapshots.length; i++) {
-      var sn = data.snapshots[i];
-      if (!sn.blob) continue;
-      try {
-        var iv = b64ToBytes(sn.blob.iv);
-        var pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv: iv }, key, b64ToBytes(sn.blob.data));
-        var json = await gunzip(new Uint8Array(pt));
-        var obj = JSON.parse(new TextDecoder().decode(json));
-        SNAPS.push({ name: (sn.deviceName || sn.deviceId) + " @ " + new Date(sn.updatedAt).toLocaleString("zh-CN"), items: obj.items || [], bookmarks: obj.bookmarks || null });
-      } catch (e) { console.warn("decrypt failed", e); }
+    var sn = data.snapshots && data.snapshots[0];
+    if (!data.ok || !sn || !sn.blob) { $("d1err").textContent = "该快照数据为空。"; $("d1status").textContent = ""; return; }
+    try {
+      var key = await deriveKey(pass);
+      var iv = b64ToBytes(sn.blob.iv);
+      var pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv: iv }, key, b64ToBytes(sn.blob.data));
+      var json = await gunzip(new Uint8Array(pt));
+      var obj = JSON.parse(new TextDecoder().decode(json));
+      curSnap = { name: (sn.deviceName || sn.deviceId || dev.device_name) + " @ " + new Date(sn.updatedAt).toLocaleString("zh-CN"), items: obj.items || [], bookmarks: obj.bookmarks || null };
+      render();
+      $("d1status").textContent = "已载入「" + (dev.device_name || "?") + "」的快照。";
+    } catch (e) {
+      console.warn("decrypt failed", e);
+      $("d1err").textContent = "解密失败(口令不对或数据损坏)。"; $("d1status").textContent = "";
     }
-    if (!SNAPS.length) { $("d1err").textContent = "没有可解密的快照(口令不对或云端为空)。"; $("d1status").textContent = ""; return; }
-    var sel = '<select id="fsnap">';
-    for (var k = 0; k < SNAPS.length; k++) sel += '<option value="' + k + '">' + escHtml(SNAPS[k].name) + '</option>';
-    sel += '</select>';
-    $("fdev").innerHTML = sel;
-    $("fsnap").addEventListener("change", function () { curSnap = SNAPS[parseInt(this.value, 10) || 0]; render(); });
-    curSnap = SNAPS[0];
-    render();
-    $("d1status").textContent = "共 " + SNAPS.length + " 个设备的快照。";
   }
   // ===== 可折叠文件夹树：模拟扩展内的文件夹结构 =====
   var foldSeq = 0;
@@ -260,6 +287,7 @@
   $("ftoken").value = $("ftoken").value || localStorage.getItem("d1view_token") || "";
   $("fkey").value = $("fkey").value || localStorage.getItem("d1view_key") || "";
   $("fgo").addEventListener("click", load);
+  $("fdl").addEventListener("click", downloadOne);
   if ($("ftoken").value && $("fkey").value) load();
 })();
 </script>
