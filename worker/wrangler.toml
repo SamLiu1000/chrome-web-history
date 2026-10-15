@@ -3,7 +3,7 @@
 # 2. 真实 database_id 保存在根目录 private/wrangler.toml（已 gitignore，勿提交）
 #    部署: cd worker && wrangler deploy --config ../private/wrangler.toml
 
-name = "onetap-d1-sync"
+name = "d1-sync"
 main = "src/worker.js"
 compatibility_date = "2024-09-01"
 

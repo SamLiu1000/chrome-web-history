@@ -35,7 +35,7 @@ wrangler deploy --config ../private/wrangler.toml
 # 没有则直接: wrangler deploy
 ```
 
-记下输出的 `https://onetap-d1-sync.<你的子域>.workers.dev`。
+记下输出的 `https://d1-sync.<你的子域>.workers.dev`。
 
 ## 2. 配置扩展
 
