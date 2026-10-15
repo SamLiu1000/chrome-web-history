@@ -5,22 +5,37 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>web-history 云端标签</title>
 <style>
-  :root { --text-color: #222; --text-color-weak: #666; --link: #1a0dab; }
+  :root { --text-color: #222; --text-color-weak: #666; --link: #1a0dab; --line: #e3e3e3; --hover: #f5f7fa; --accent: #2b6cb0; }
   body { margin: 0; font-family: 'Open Sans', 'Segoe UI', Arial, sans-serif; color: var(--text-color); background: #fff; line-height: 1.45; }
   #contentAreaDiv { max-width: 980px; margin: 0 auto; padding: 22px 28px 44px; }
   #headerText { font-size: 16px; color: var(--text-color-weak); font-weight: 300; margin-bottom: 8px; padding-bottom: 14px; }
-  .tabGroup { margin-top: 16px; background: #fff; }
-  .tabGroupHeader { padding: 14px 0 10px; }
-  .tabGroupHeaderRow { display: flex; align-items: baseline; gap: 42px; flex-wrap: wrap; }
-  .tabGroupTitleText { font-size: 24px; font-weight: 300; word-break: break-word; margin-bottom: 0; }
-  .tabCountInline { display: inline-block; color: var(--text-color-weak); font-size: 24px; font-weight: 300; }
+  /* 视图切换按钮（标签页 / 书签） */
+  #viewSwitch { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; margin-bottom: 14px; }
+  #viewSwitch button { padding: 7px 22px; border: none; background: #fff; color: var(--text-color-weak); font-size: 13px; cursor: pointer; }
+  #viewSwitch button + button { border-inline-start: 1px solid var(--line); }
+  #viewSwitch button.active { background: var(--accent); color: #fff; }
+  #viewSwitch button:disabled { opacity: .4; cursor: default; }
+  /* 顶部分组卡片 */
+  .tabGroup { margin-top: 16px; background: #fff; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .tabGroupHeader { padding: 12px 16px 10px; border-bottom: 1px solid var(--line); background: #fafbfc; }
+  .tabGroupHeaderRow { display: flex; align-items: baseline; gap: 18px; flex-wrap: wrap; }
+  .tabGroupTitleText { font-size: 19px; font-weight: 300; word-break: break-word; margin-bottom: 0; }
+  .tabCountInline { display: inline-block; color: var(--text-color-weak); font-size: 13px; font-weight: 400; }
   .createdDate { display: block; color: var(--text-color-weak); font-size: 11px; margin-top: 2px; }
   .tabList { padding: 4px 0 8px; }
-  .tab { padding: 2px 16px 2px 18px; font-size: 13px; word-break: break-word; }
-  .innerGroupTitleText { padding: 4px 16px 1px 18px; font-size: 16px; font-weight: 300; color: var(--text-color); word-break: break-word; }
-  .innerGroupBlock { margin-bottom: 10px; }
-  .innerGroupBlock:last-child { margin-bottom: 0; }
-  .innerGroupNotes { padding: 0 16px 2px 18px; font-size: 11px; color: var(--text-color-weak); white-space: pre-wrap; word-break: break-word; unicode-bidi: plaintext; }
+  /* 可折叠文件夹树 */
+  .fold-row { display: flex; align-items: baseline; gap: 6px; padding: 5px 12px 5px 16px; cursor: pointer; user-select: none; border-radius: 6px; }
+  .fold-row:hover { background: var(--hover); }
+  .fold-caret { display: inline-block; width: 1em; color: var(--text-color-weak); font-size: 11px; transition: transform .12s; }
+  .fold-open > .fold-row .fold-caret { transform: rotate(90deg); }
+  .fold-title { font-size: 14px; font-weight: 500; word-break: break-word; }
+  .fold-count { color: var(--text-color-weak); font-size: 11px; }
+  .fold-kids { display: none; }
+  .fold-open > .fold-kids { display: block; }
+  .fold-kids { margin-inline-start: 18px; border-inline-start: 1px dashed var(--line); padding-inline-start: 4px; }
+  .tab { padding: 2px 12px 2px 18px; font-size: 13px; word-break: break-word; border-radius: 6px; }
+  .tab:hover { background: var(--hover); }
+  .innerGroupNotes { padding: 0 12px 2px 18px; font-size: 11px; color: var(--text-color-weak); white-space: pre-wrap; word-break: break-word; unicode-bidi: plaintext; }
   .tabLink { text-decoration: none; color: var(--link); }
   .tabLink:hover { text-decoration: underline; }
   .tabNotes { font-size: 11px; color: var(--text-color-weak); margin-top: 2px; white-space: pre-wrap; unicode-bidi: plaintext; }
@@ -37,19 +52,25 @@
   <div id="d1form">
     Access Token: <input id="ftoken" type="password" size="28">
     加密口令: <input id="fkey" type="password" size="20">
-    <button id="fgo">载入云端标签</button>
+    <button id="fgo">载入云端数据</button>
     <span id="fdev"></span>
     <div id="d1status">数据在浏览器中用你的口令解密, 不经过服务器明文传输。</div>
     <div id="d1err"></div>
   </div>
   <div id="headerText"></div>
-  <div id="tabGroupsDiv"><div id="emptyState">填写 Access Token 与加密口令后点击“载入云端标签”。也可以用 /view?token=...&amp;key=... 直接访问。</div></div>
+  <div id="viewSwitch" hidden>
+    <button id="btnTabs" class="active" type="button">标签页</button>
+    <button id="btnBookmarks" type="button">书签</button>
+  </div>
+  <div id="tabGroupsDiv"><div id="emptyState">填写 Access Token 与加密口令后点击“载入云端数据”。也可以用 /view?token=...&amp;key=... 直接访问。</div></div>
 </div>
 <script>
 (function () {
   var $ = function (id) { return document.getElementById(id); };
   var enc = new TextEncoder();
   var NL = String.fromCharCode(10);
+  var viewMode = "tabs"; // "tabs" | "bm"
+  var curSnap = null;
   function escHtml(t) { return String(t == null ? "" : t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
   function escAttr(t) { return String(t == null ? "" : t).replace(/&/g, "&amp;").replace(/"/g, "&quot;"); }
   function b64ToBytes(b64) { var s = atob(b64); var b = new Uint8Array(s.length); for (var i = 0; i < s.length; i++) b[i] = s.charCodeAt(i); return b; }
@@ -101,27 +122,44 @@
     for (var k = 0; k < SNAPS.length; k++) sel += '<option value="' + k + '">' + escHtml(SNAPS[k].name) + '</option>';
     sel += '</select>';
     $("fdev").innerHTML = sel;
-    $("fsnap").addEventListener("change", function () { render(parseInt(this.value, 10) || 0); });
-    render(0);
+    $("fsnap").addEventListener("change", function () { curSnap = SNAPS[parseInt(this.value, 10) || 0]; render(); });
+    curSnap = SNAPS[0];
+    render();
     $("d1status").textContent = "共 " + SNAPS.length + " 个设备的快照。";
   }
-  function render(si) {
-    var snap = SNAPS[si];
-    if (!snap) return;
-    var byId = {};
-    var items = snap.items;
-    for (var i = 0; i < items.length; i++) if (items[i] && items[i].id) byId[items[i].id] = items[i];
+  // ===== 可折叠文件夹树：模拟扩展内的文件夹结构 =====
+  var foldSeq = 0;
+  function foldHtml(title, count, kidsHtml, opts) {
+    opts = opts || {};
+    var id = "fold" + (++foldSeq);
+    return '<div class="fold fold-open" id="' + id + '">' + NL +
+      '<div class="fold-row" data-fold="' + id + '">' + NL +
+      '<span class="fold-caret">▶</span>' + NL +
+      '<span class="fold-title"><span dir="auto">' + escHtml(title) + '</span></span>' + NL +
+      '<span class="fold-count">' + escHtml(count) + '</span>' + NL +
+      '</div>' + NL +
+      (opts.notes ? '<div class="innerGroupNotes">' + escHtml(opts.notes) + '</div>' : '') + NL +
+      '<div class="fold-kids">' + kidsHtml + '</div>' + NL +
+      '</div>';
+  }
+  function tabHtml(c) {
+    var notes = (c.notes && c.notes.text) ? '<div class="tabNotes">' + escHtml(c.notes.text) + '</div>' : '';
+    return '<div class="tab"><a class="tabLink" dir="auto" href="' + escAttr(c.url || '') + '">' + escHtml(c.title || c.url || '') + '</a>' + notes + '</div>';
+  }
+  // ---- 标签页快照（与扩展内一致的 group 嵌套结构） ----
+  function buildTabModel(snap) {
+    var byId = {}, items = snap.items, i, it;
+    for (i = 0; i < items.length; i++) if (items[i] && items[i].id) byId[items[i].id] = items[i];
     var topIds = [];
     if (byId["root"] && byId["root"].childIds) topIds = byId["root"].childIds;
-    else for (var j = 0; j < items.length; j++) {
-      var it = items[j];
+    else for (i = 0; i < items.length; i++) {
+      it = items[i];
       if (it && it.type === "group" && it.parentIds && it.parentIds.indexOf("root") !== -1) topIds.push(it.id);
     }
-    function countOf(it) {
-      if (!it) return 0;
-      if (it.type === "tab") return 1;
-      var n = 0;
-      var kids = it.childIds || [];
+    function countOf(it2) {
+      if (!it2) return 0;
+      if (it2.type === "tab") return 1;
+      var n = 0, kids = it2.childIds || [];
       for (var k = 0; k < kids.length; k++) {
         var c = byId[kids[k]];
         if (c && c.type === "tab") n++;
@@ -129,93 +167,92 @@
       }
       return n;
     }
-    function renderChildren(it, level) {
-      var step = 20, out = "", idx = 0;
-      var kids = it.childIds || [];
+    function buildKids(it3) {
+      var out = "", kids = it3.childIds || [];
       for (var k = 0; k < kids.length; k++) {
         var c = byId[kids[k]];
         if (!c) continue;
-        var padA = level ? level * step : 0;
-        var padB = (level + 1) * step;
-        if (c.type === "tab") {
-          var notes = (c.notes && c.notes.text) ? '<div class="tabNotes">' + escHtml(c.notes.text) + '</div>' : '';
-          out += '<div class="tab" style="padding-inline-start: ' + padA + 'px;"><a class="tabLink" dir="auto" href="' + escAttr(c.url || '') + '">' + escHtml(c.title || c.url || '') + '</a>' + notes + '</div>';
-          idx++;
-        } else if (c.type === "group") {
-          out += '<div class="innerGroupBlock" style="margin-top: ' + (idx ? 8 : 2) + 'px;">' + NL +
-            '<div class="innerGroupTitleText" style="padding-inline-start: ' + padB + 'px;"><span dir="auto">' + escHtml(c.label || '') + '</span></div>';
-          if (c.notes && c.notes.text) out += '<div class="innerGroupNotes" style="padding-inline-start: ' + padB + 'px;">' + escHtml(c.notes.text) + '</div>';
-          out += renderChildren(c, level + 1);
-          out += '</div>';
-          idx++;
+        if (c.type === "tab") out += tabHtml(c);
+        else if (c.type === "group") {
+          out += foldHtml(c.label || "未命名文件夹", countOf(c) + " 个标签", buildKids(c), { notes: (c.notes && c.notes.text) ? c.notes.text : "" });
         }
       }
       return out;
-    }
-    function renderGroup(it) {
-      var n = countOf(it);
-      var gtitle = escHtml(it.label || "");
-      var countText = n + " 个标签";
-      var created = it.createDate ? '<div class="createdDate">' + escHtml("创建于 " + new Date(it.createDate).toLocaleDateString("zh-CN")) + '</div>' : '';
-      return '<div class="tabGroup">' + NL +
-        '<div class="tabGroupHeader">' + NL +
-        '<div class="tabGroupHeaderRow">' + NL +
-        '<div class="tabGroupTitleText"><span dir="auto">' + (gtitle || countText) + '</span></div>' + NL +
-        (gtitle ? '<div class="tabCountInline">' + countText + '</div>' + NL : "") +
-        '</div>' + NL +
-        (created ? created + NL : "") +
-        '</div>' + NL +
-        '<div class="tabList">' + renderChildren(it, 0) + '</div>' + NL +
-        '</div>';
     }
     var blocks = [], total = 0;
     for (var t = 0; t < topIds.length; t++) {
       var g = byId[topIds[t]];
       if (!g || g.type !== "group") continue;
-      blocks.push(renderGroup(g));
-      total += countOf(g);
+      var n = countOf(g);
+      total += n;
+      var created = g.createDate ? "创建于 " + new Date(g.createDate).toLocaleDateString("zh-CN") : "";
+      blocks.push('<div class="tabGroup">' + NL +
+        '<div class="tabGroupHeader"><div class="tabGroupHeaderRow">' + NL +
+        '<div class="tabGroupTitleText"><span dir="auto">' + escHtml(g.label || "") + '</span></div>' + NL +
+        '<div class="tabCountInline">' + n + " 个标签" + (created ? " · " + escHtml(created) : "") + '</div>' + NL +
+        '</div></div>' + NL +
+        '<div class="tabList">' + buildKids(g) + '</div>' + NL +
+        '</div>');
     }
-    var bodyHtml = blocks.length ? blocks.join(NL) : '<div id="emptyState">该快照暂无标签</div>';
-    // 书签整树快照（web-history 扩展同步的内容之一）
-    function countBookmarkNodes(nodes) {
-      var n = 0;
-      for (var i = 0; i < nodes.length; i++) {
-        if (nodes[i].url) n++;
-        if (nodes[i].children) n += countBookmarkNodes(nodes[i].children);
-      }
-      return n;
+    return { html: blocks.join(NL), total: total };
+  }
+  // ---- 书签整树 ----
+  function countBookmarkNodes(nodes) {
+    var n = 0;
+    for (var i = 0; i < nodes.length; i++) {
+      if (nodes[i].url) n++;
+      if (nodes[i].children) n += countBookmarkNodes(nodes[i].children);
     }
-    function renderBookmarkNodes(nodes, level) {
-      var step = 20, out = "";
+    return n;
+  }
+  function buildBookmarkModel(snap) {
+    var tree = (snap.bookmarks && snap.bookmarks.tree) || [];
+    if (!tree.length) return { html: "", total: 0 };
+    function buildKids(nodes) {
+      var out = "";
       for (var i = 0; i < nodes.length; i++) {
         var n2 = nodes[i];
-        var padA = level * step;
-        if (n2.url) {
-          out += '<div class="tab" style="padding-inline-start: ' + padA + 'px;"><a class="tabLink" dir="auto" href="' + escAttr(n2.url) + '">' + escHtml(n2.title || n2.url) + '</a></div>';
-        } else if (n2.children) {
-          var padB = (level + 1) * step;
-          out += '<div class="innerGroupBlock" style="margin-top: ' + (i ? 8 : 2) + 'px;">' + NL +
-            '<div class="innerGroupTitleText" style="padding-inline-start: ' + padB + 'px;"><span dir="auto">' + escHtml(n2.title || "未命名文件夹") + '</span></div>' +
-            renderBookmarkNodes(n2.children, level + 1) + '</div>';
-        }
+        if (n2.url) out += '<div class="tab"><a class="tabLink" dir="auto" href="' + escAttr(n2.url) + '">' + escHtml(n2.title || n2.url) + '</a></div>';
+        else if (n2.children) out += foldHtml(n2.title || "未命名文件夹", countBookmarkNodes(n2.children) + " 个书签", buildKids(n2.children));
       }
       return out;
     }
-    if (snap.bookmarks && snap.bookmarks.tree && snap.bookmarks.tree.length) {
-      var bmCount = countBookmarkNodes(snap.bookmarks.tree);
-      bodyHtml += '<div class="tabGroup">' + NL +
-        '<div class="tabGroupHeader">' + NL +
-        '<div class="tabGroupHeaderRow">' + NL +
-        '<div class="tabGroupTitleText"><span dir="auto">书签</span></div>' + NL +
-        '<div class="tabCountInline">' + bmCount + ' 个书签</div>' + NL +
-        '</div>' + NL +
-        '</div>' + NL +
-        '<div class="tabList">' + renderBookmarkNodes(snap.bookmarks.tree, 0) + '</div>' + NL +
-        '</div>';
-    }
-    $("headerText").textContent = "共 " + total + " 个标签 · " + snap.name;
-    $("tabGroupsDiv").innerHTML = bodyHtml;
+    var total = countBookmarkNodes(tree);
+    var html = '<div class="tabGroup">' + NL +
+      '<div class="tabGroupHeader"><div class="tabGroupHeaderRow">' + NL +
+      '<div class="tabGroupTitleText"><span dir="auto">书签</span></div>' + NL +
+      '<div class="tabCountInline">' + total + ' 个书签</div>' + NL +
+      '</div></div>' + NL +
+      '<div class="tabList">' + buildKids(tree) + '</div>' + NL +
+      '</div>';
+    return { html: html, total: total };
   }
+  function render() {
+    if (!curSnap) return;
+    var tabsModel = buildTabModel(curSnap);
+    var bmModel = buildBookmarkModel(curSnap);
+    var hasTabs = tabsModel.total > 0, hasBm = bmModel.total > 0;
+    $("viewSwitch").hidden = false;
+    $("btnTabs").disabled = !hasTabs;
+    $("btnBookmarks").disabled = !hasBm;
+    if ((viewMode === "bm" && !hasBm) || (viewMode === "tabs" && !hasTabs)) viewMode = hasTabs ? "tabs" : "bm";
+    $("btnTabs").classList.toggle("active", viewMode === "tabs");
+    $("btnBookmarks").classList.toggle("active", viewMode === "bm");
+    var html = viewMode === "tabs" ? tabsModel.html : bmModel.html;
+    $("headerText").textContent = "标签 " + tabsModel.total + " 个 · 书签 " + bmModel.total + " 个 · " + curSnap.name;
+    $("tabGroupsDiv").innerHTML = html || '<div id="emptyState">该快照暂无数据</div>';
+  }
+  // 文件夹折叠/展开（事件委托）
+  document.addEventListener("click", function (ev) {
+    var row = ev.target.closest ? ev.target.closest(".fold-row") : null;
+    if (!row) return;
+    if (ev.target.closest("a")) return;
+    var fold = document.getElementById(row.getAttribute("data-fold"));
+    if (fold) fold.classList.toggle("fold-open");
+  });
+  // 视图切换
+  $("btnTabs").addEventListener("click", function () { viewMode = "tabs"; render(); });
+  $("btnBookmarks").addEventListener("click", function () { viewMode = "bm"; render(); });
   var q = new URLSearchParams(location.search);
   var qt = q.get("token"), qk = q.get("key");
   if (qt) $("ftoken").value = qt;
