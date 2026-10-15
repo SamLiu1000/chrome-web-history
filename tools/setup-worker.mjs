@@ -173,20 +173,11 @@ database_id = "${databaseId}"
   console.log(c.bold('打开扩展 → 设置 → 云同步，按下面填写：\n'));
   console.log(`  ① Worker 地址  : ${c.cyan(workerUrl)}`);
   console.log(`  ② Access Token : ${c.cyan(token)}`);
-  console.log('  ③ 加密口令     : ' + c.yellow('由你自己现在想一个密码'));
+  console.log('  ③ 加密口令     : ' + c.yellow('自定义一个密码（现在想好，直接填进扩展）'));
   console.log(`
-    ${c.bold('口令是什么？')} 它不是系统发给你的，就是你现编的一个密码（建议短语式，
-    例如「我的猫叫旺财2024!」），在扩展第③栏填入即可，填什么它就是什么。
-
-    ${c.bold('三条铁律：')}
-    · 多台设备必须填同一个口令（口令不一致 = 解密失败，同步不了）；
-    · 不要告诉任何人（云端快照是密文，拿到口令就能看到你的全部数据）；
-    · 一定记牢（口令丢失 = 云端数据永久无法解密，无任何找回手段，
-      建议记到密码管理器或手写保存）。
-
-    ${c.bold('填好后验证：')} 扩展里点「↑ 同步到云」→ 浏览器打开
-    ${workerUrl}/view?token=<你的Token>&key=<你的口令>
-    能看到标签列表，说明三项都填对了。`);
+    在扩展「设置 → 云同步」的第③栏填入。注意：
+    · 多台设备必须填同一个口令，否则无法同步；
+    · 口令丢失无法找回，请务必记牢。`);
   console.log(`\n${c.dim('提示：private/wrangler.toml 保存了真实配置（已被 .gitignore 排除）；')}`);
   console.log(c.dim('以后重新部署只需：wrangler deploy --config private/wrangler.toml'));
   rl.close();
