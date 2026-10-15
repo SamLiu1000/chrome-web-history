@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "浏览库",
   "short_name": "浏览库",
-  "version": "1.2.6",
+  "version": "1.2.7",
   "description": "本地个人浏览库：可搜索、可分类、可备份；标签页收藏（可与 OneTab 互导、支持 Cloudflare 端到端加密云同步）、意外关闭找回。",
   "minimum_chrome_version": "116",
   "permissions": [

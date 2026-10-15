@@ -80,8 +80,20 @@ function reportResult(res, label) {
 
 async function render() {
   if (!host) return;
+  // 立即显示占位：让"快捷条到底有没有跑起来"肉眼可判（而不是静默空白）
+  setInnerHTML(host, '<span class="syncq-muted" style="font-size:11px;">云同步…</span>');
   const r = await sendD1({ type: 'd1SyncGetState' });
-  if (!r.ok || !r.config) { setInnerHTML(host, ''); return; }
+  if (!r.ok) {
+    setInnerHTML(host, '<span class="syncq-err" style="font-size:11px;" title="' + escapeHtml(r.error || '') + '">云同步条加载失败</span>');
+    console.warn('[历史记录] 快捷条读取状态失败', r.error);
+    return;
+  }
+  if (!r.config) {
+    // 未配置云同步：快捷条隐藏（去设置页「云同步」配置后自动出现）
+    setInnerHTML(host, '');
+    console.info('[历史记录] 云同步未配置，顶栏快捷条隐藏');
+    return;
+  }
   cfgCache = r.config;
   const st = r.state || {};
   myName = (cfgCache.deviceName || '').trim() || ('device-' + String(cfgCache.deviceId || 'x').slice(0, 6));
