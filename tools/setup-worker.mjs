@@ -24,7 +24,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const DB_NAME = process.env.DB_NAME || 'onetap-sync';
+const DB_NAME = process.env.DB_NAME || 'onetap-sync-apac'; // 正式库名（勿改回旧库 onetap-sync，那里面是迁移前的数据）
 const WORKER_NAME = process.env.WORKER_NAME || 'd1-sync';
 const WRANGLER = ['npx', '--yes', 'wrangler'];
 
