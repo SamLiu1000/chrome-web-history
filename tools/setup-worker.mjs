@@ -24,7 +24,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const DB_NAME = process.env.DB_NAME || 'onetap-sync-apac'; // 正式库名（勿改回旧库 onetap-sync，那里面是迁移前的数据）
+const DB_NAME = process.env.DB_NAME || 'd1-sync'; // 数据库名（与 Worker 同名；各账号名字空间独立，互不相干）
 const WORKER_NAME = process.env.WORKER_NAME || 'd1-sync';
 const WRANGLER = ['npx', '--yes', 'wrangler'];
 
@@ -140,19 +140,43 @@ async function main() {
 
   // ---------- 2. D1 数据库 ----------
   banner(`创建 D1 数据库「${DB_NAME}」`);
-  let list = run(['d1', 'list', '--json']);
-  let dbs = [];
-  try { dbs = JSON.parse(list.stdout); } catch { /* 解析失败按空处理 */ }
-  let db = dbs.find((d) => d.name === DB_NAME || d.uuid === DB_NAME);
-  if (db) {
-    console.log(c.green(`✔ 数据库已存在，复用（id=${db.uuid}）`));
+  // 保护：本地 private/wrangler.toml 已有绑定时先询问——重跑脚本（换账号/换库名）
+  // 不能悄悄覆盖掉已经在用的正确绑定，否则 Worker 会指到另一个（空）库
+  const privDir = path.join(ROOT, 'private');
+  const privToml = path.join(privDir, 'wrangler.toml');
+  const existingId = existsSync(privToml)
+    ? (readFileSync(privToml, 'utf8').match(/database_id\s*=\s*"([0-9a-f-]{36})"/) || [])[1]
+    : undefined;
+  let keepExisting = false;
+  if (existingId) {
+    console.log(`检测到本地已有数据库绑定：${c.cyan(existingId)}`);
+    const ans = (await ask('保留该绑定（推荐，回车）？还是按库名重建/切换（输入 n）：')).trim().toLowerCase();
+    keepExisting = ans !== 'n';
+  }
+
+  let db;
+  if (keepExisting) {
+    const list0 = run(['d1', 'list', '--json']);
+    let dbs0 = [];
+    try { dbs0 = JSON.parse(list0.stdout); } catch { /* 解析失败按空处理 */ }
+    db = dbs0.find((d) => d.uuid === existingId);
+    if (!db) { console.error(c.red(`本地绑定的数据库 ${existingId} 在当前账号下找不到（换过账号？）。请选择"重建/切换"或登录正确账号。`)); rl.close(); return; }
+    console.log(c.green(`✔ 继续使用已有数据库「${db.name}」`));
   } else {
-    const created = await runLive(['d1', 'create', DB_NAME]);
-    list = run(['d1', 'list', '--json']);
-    try { dbs = JSON.parse(list.stdout); } catch { /* 同上 */ }
-    db = dbs.find((d) => d.name === DB_NAME);
-    if (!db) { console.error(c.red('创建数据库失败，请查看上方输出。')); rl.close(); return; }
-    console.log(c.green(`✔ 创建成功（id=${db.uuid}）`));
+    let list = run(['d1', 'list', '--json']);
+    let dbs = [];
+    try { dbs = JSON.parse(list.stdout); } catch { /* 解析失败按空处理 */ }
+    db = dbs.find((d) => d.name === DB_NAME || d.uuid === DB_NAME);
+    if (db) {
+      console.log(c.green(`✔ 数据库已存在，复用（id=${db.uuid}）`));
+    } else {
+      const created = await runLive(['d1', 'create', DB_NAME]);
+      list = run(['d1', 'list', '--json']);
+      try { dbs = JSON.parse(list.stdout); } catch { /* 同上 */ }
+      db = dbs.find((d) => d.name === DB_NAME);
+      if (!db) { console.error(c.red('创建数据库失败，请查看上方输出。')); rl.close(); return; }
+      console.log(c.green(`✔ 创建成功（id=${db.uuid}）`));
+    }
   }
   const databaseId = db.uuid || db.database_id;
 
@@ -171,10 +195,10 @@ async function main() {
 
   // ---------- 5. private/wrangler.toml ----------
   banner('生成本地私有部署配置 private/wrangler.toml');
-  const privDir = path.join(ROOT, 'private');
-  const privToml = path.join(privDir, 'wrangler.toml');
+  // privDir/privToml 已在步骤 2 解析过；这里直接使用
   mkdirSync(privDir, { recursive: true });
-  if (existsSync(privToml)) {
+  // 绑定保护通过时（keepExisting），database_id 本就一致，不会触发改写
+  if (!keepExisting && existsSync(privToml)) {
     let cur = readFileSync(privToml, 'utf8');
     if (!cur.includes(databaseId)) {
       cur = cur.replace(/database_id\s*=\s*"[^"]*"/, `database_id = "${databaseId}"`);
