@@ -2,6 +2,16 @@
 
 用 Cloudflare D1(免费)替换 OneTab 自带的付费 one-tab.com 同步。快照式、端到端加密。
 
+## 0. 一键引导部署（推荐新手）
+
+在仓库根目录执行，脚本会分步引导：登录 Cloudflare → 建库建表 → 生成 Access Token → 部署 → 打印扩展设置所需的地址与令牌：
+
+```bash
+node tools/setup-worker.mjs
+```
+
+完成后把输出的 **Worker 地址 / Access Token** 填进扩展设置即可（加密口令自定）。以下手动步骤与脚本等效，供了解原理或手动排障。
+
 ## 1. 部署 Worker + D1
 
 ```bash
