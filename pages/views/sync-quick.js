@@ -30,6 +30,8 @@ function fmtTime(ts) {
 
 let host = null;          // 挂载点（模块级：d1SyncUpdated 推送过来时重渲染）
 let expanded = false;     // 下拉面板展开状态（重渲染后保持）
+let listLoaded = false;   // 快照列表是否已读取过：懒加载——只在用户首次点开「快照」时读一次，
+                          // 之后用缓存（点「刷新」或增删合并操作后强制重读）。页面打开不读取。
 let myName = '';
 let cfgCache = null;
 
@@ -136,7 +138,7 @@ async function render() {
         <button class="syncq-btn" id="sqMerge" disabled title="把选中的 2 份以上快照合并为一份新快照">合并</button>
         <button class="syncq-btn" id="sqRefresh">刷新</button>
       </div>
-      <div id="sqList" class="syncq-list"><div class="syncq-muted">正在读取云端快照…</div></div>
+      <div id="sqList" class="syncq-list"><div class="syncq-muted">展开时自动加载云端快照列表。</div></div>
     </div>
   `);
 
@@ -161,7 +163,7 @@ async function render() {
   host.querySelector('#sqToggle').addEventListener('click', async () => {
     expanded = !expanded;
     render();
-    if (expanded) loadList();
+    if (expanded && !listLoaded) loadList();
   });
   host.querySelector('#sqNameSave').addEventListener('click', async () => {
     const deviceName = host.querySelector('#sqName').value.trim();
@@ -223,7 +225,7 @@ async function render() {
     loadList();
   });
 
-  if (expanded) loadList();
+  if (expanded && !listLoaded) loadList({ force: false });
 }
 
 function syncSel() {
@@ -235,9 +237,11 @@ function syncSel() {
   if (all) all.checked = boxes.length > 0 && boxes.every((b) => b.checked);
 }
 
-async function loadList() {
+async function loadList({ force = true } = {}) {
   const list = host?.querySelector('#sqList');
   if (!list) return;
+  if (!force && listLoaded) return; // 懒加载：已读过且未强制时直接用缓存
+  listLoaded = true;
   const res = await sendD1({ type: 'd1SyncListSnapshots' });
   if (!res.ok) {
     setInnerHTML(list, `<div class="syncq-err">读取失败：${escapeHtml(res.error || '未知错误')}</div>`);
