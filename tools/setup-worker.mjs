@@ -52,7 +52,12 @@ function runLive(args, { input } = {}) {
   return new Promise((resolve) => {
     const child = spawn(WRANGLER[0], [...WRANGLER.slice(1), ...args], { cwd: ROOT, shell: process.platform === 'win32' });
     let out = '';
-    const collect = (d) => { const s = d.toString(); out += s; process.stdout.write(c.dim(s)); };
+    // wrangler 输出带 ANSI 颜色/OSC8 超链接转义码，会把 URL 匹配搞坏——
+    // 回显用原文，解析用剥离后的纯文本
+    const strip = (s) => s
+      .replace(/\x1b\]8;;[^\x07\x1b]*(?:\x07|\x1b\\)/g, '') // OSC 8 超链接包裹
+      .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');               // SGR 颜色/光标
+    const collect = (d) => { const s = d.toString(); out += strip(s); process.stdout.write(c.dim(s)); };
     child.stdout.on('data', collect);
     child.stderr.on('data', collect);
     if (input !== undefined) {
