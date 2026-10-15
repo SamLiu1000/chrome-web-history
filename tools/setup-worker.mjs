@@ -42,14 +42,15 @@ function banner(title) {
   step += 1;
   console.log(`\n${c.bold(c.cyan(`[步骤 ${step}] ${title}`))}`);
 }
-function run(cmd, args, opts = {}) {
-  const r = spawnSync(cmd, args, { cwd: ROOT, encoding: 'utf8', shell: process.platform === 'win32', ...opts });
+/** 执行 wrangler 子命令（args = ['d1','list','--json']），返回 {code,stdout,stderr}。 */
+function run(args, opts = {}) {
+  const r = spawnSync(WRANGLER[0], [...WRANGLER.slice(1), ...args], { cwd: ROOT, encoding: 'utf8', shell: process.platform === 'win32', ...opts });
   return { code: r.status, stdout: r.stdout || '', stderr: r.stderr || '' };
 }
-/** 流式执行（实时回显 wrangler 输出），返回合并输出。 */
-function runLive(cmd, args, { input } = {}) {
+/** 流式执行 wrangler 子命令（实时回显），返回合并输出。 */
+function runLive(args, { input } = {}) {
   return new Promise((resolve) => {
-    const child = spawn(cmd, args, { cwd: ROOT, shell: process.platform === 'win32' });
+    const child = spawn(WRANGLER[0], [...WRANGLER.slice(1), ...args], { cwd: ROOT, shell: process.platform === 'win32' });
     let out = '';
     const collect = (d) => { const s = d.toString(); out += s; process.stdout.write(c.dim(s)); };
     child.stdout.on('data', collect);
@@ -74,11 +75,11 @@ async function main() {
 
   // ---------- 1. 登录状态 ----------
   banner('检查 Cloudflare 登录状态');
-  let who = run(...WRANGLER, ['whoami']);
+  let who = run(['whoami']);
   const loggedIn = who.code === 0 && /You are logged in|logged in with/i.test(who.stdout + who.stderr);
   if (!loggedIn) {
     console.log(c.yellow('尚未登录 Cloudflare，正在打开浏览器授权…（在浏览器里点击 Allow 即可）'));
-    const login = await runLive(...WRANGLER, ['login']);
+    const login = await runLive(['login']);
     if (login.code !== 0) { console.error(c.red('登录失败，请重跑本脚本。')); rl.close(); return; }
   } else {
     console.log(c.green('✔ 已登录'));
@@ -86,15 +87,15 @@ async function main() {
 
   // ---------- 2. D1 数据库 ----------
   banner(`创建 D1 数据库「${DB_NAME}」`);
-  let list = run(...WRANGLER, ['d1', 'list', '--json']);
+  let list = run(['d1', 'list', '--json']);
   let dbs = [];
   try { dbs = JSON.parse(list.stdout); } catch { /* 解析失败按空处理 */ }
   let db = dbs.find((d) => d.name === DB_NAME || d.uuid === DB_NAME);
   if (db) {
     console.log(c.green(`✔ 数据库已存在，复用（id=${db.uuid}）`));
   } else {
-    const created = await runLive(...WRANGLER, ['d1', 'create', DB_NAME]);
-    list = run(...WRANGLER, ['d1', 'list', '--json']);
+    const created = await runLive(['d1', 'create', DB_NAME]);
+    list = run(['d1', 'list', '--json']);
     try { dbs = JSON.parse(list.stdout); } catch { /* 同上 */ }
     db = dbs.find((d) => d.name === DB_NAME);
     if (!db) { console.error(c.red('创建数据库失败，请查看上方输出。')); rl.close(); return; }
@@ -104,14 +105,14 @@ async function main() {
 
   // ---------- 3. 建表 ----------
   banner('初始化数据表（worker/schema.sql）');
-  const schema = await runLive(...WRANGLER, ['d1', 'execute', DB_NAME, '--remote', '--file', 'worker/schema.sql', '-y']);
+  const schema = await runLive(['d1', 'execute', DB_NAME, '--remote', '--file', 'worker/schema.sql', '-y']);
   if (schema.code !== 0) { console.error(c.red('建表失败，请查看上方输出。')); rl.close(); return; }
   console.log(c.green('✔ 数据表就绪'));
 
   // ---------- 4. Access Token ----------
   banner('生成并写入访问令牌 SYNC_TOKEN');
   const token = randomBytes(32).toString('hex');
-  const secret = await runLive(...WRANGLER, ['secret', 'put', 'SYNC_TOKEN', '--name', WORKER_NAME], { input: token + '\n' });
+  const secret = await runLive(['secret', 'put', 'SYNC_TOKEN', '--name', WORKER_NAME], { input: token + '\n' });
   if (secret.code !== 0) { console.error(c.red('写入令牌失败（Worker 尚未部署时可能报错，部署后会重试）。')); }
   else console.log(c.green('✔ 令牌已写入'));
 
@@ -146,11 +147,11 @@ database_id = "${databaseId}"
   // ---------- 6. 部署 ----------
   banner(`部署 Worker「${WORKER_NAME}」`);
   // Worker 未首次部署时 secret put 会失败——这里补写一次
-  let deploy = await runLive(...WRANGLER, ['deploy', '--config', 'private/wrangler.toml']);
+  let deploy = await runLive(['deploy', '--config', 'private/wrangler.toml']);
   if (secret.code !== 0) {
     console.log(c.dim('补充写入 SYNC_TOKEN…'));
-    await runLive(...WRANGLER, ['secret', 'put', 'SYNC_TOKEN', '--name', WORKER_NAME], { input: token + '\n' });
-    deploy = await runLive(...WRANGLER, ['deploy', '--config', 'private/wrangler.toml']);
+    await runLive(['secret', 'put', 'SYNC_TOKEN', '--name', WORKER_NAME], { input: token + '\n' });
+    deploy = await runLive(['deploy', '--config', 'private/wrangler.toml']);
   }
   const urlMatch = deploy.out.match(/https:\/\/[a-z0-9-]+\.workers\.dev/i);
   if (deploy.code !== 0 || !urlMatch) {
