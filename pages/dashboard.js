@@ -2,6 +2,8 @@
 // 每个 view 渲染到各自的 <section>，互不干扰（切换不会破坏其它视图的 DOM）。
 
 import { initSchema, counts, earliestVisitAt, getSetting } from '../lib/db.js';
+import { ensureStoragePersisted } from '../lib/util.js';
+import { maybeBackupOnOpen } from '../lib/local-backup.js';
 import { toast } from '../lib/toast.js';
 
 export const els = {
@@ -230,6 +232,10 @@ function syncBrowseLayout() {
   const dbReady = initSchema()
     .then(() => refreshTopStatus())
     .catch((e) => showGlobalError('历史记录数据库初始化失败：' + (e?.message || e)));
+  // 申请持久化存储（幂等）：防 IndexedDB 被 Chrome 存储压力整库自动清除
+  ensureStoragePersisted().catch(() => {});
+  // 本地磁盘备份补写（限流 1 小时；未选择备份文件夹时静默跳过）
+  maybeBackupOnOpen().catch(() => {});
   await switchTab(tab, { q: params.get('q') });
   syncBrowseLayout(); // 首个视图渲染完成后测量搜索栏高度
   await dbReady;

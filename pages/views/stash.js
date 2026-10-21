@@ -43,6 +43,7 @@ let built = false;
 let container = null;
 let ui = null;
 let searchNeedle = '';
+let emptyWarnChecked = false; // 每个页面生命周期只查一次"库被外部清空"
 let lockedOnly = false; // 只看锁定：勾选后主区只显示已锁定的分组
 let currentFolder = 'root'; // 'root' | folderId | 'trash'
 let editing = false;
@@ -171,17 +172,41 @@ function nodeName(n, byId) {
   return n.type !== 'group' ? '' : (n.label || (n.groupType === 'folder' ? '未命名文件夹' : `${countOfNode(n)} 个标签`));
 }
 
-function tabRowHtml(t, gLabel = '') {
+/** 搜索命中高亮：把 needle 命中段包上 <mark class="st-hl">（大小写不敏感）。
+ *  先按原文切分段、逐段 escapeHtml，再拼 mark——不能对已转义的 HTML 做替换，
+ *  否则 &amp; 这类实体会被切碎。 */
+function stHl(text, needle) {
+  if (!needle || !text) return escapeHtml(text || '');
+  const low = text.toLowerCase();
+  const nl = needle.toLowerCase();
+  let out = '', i = 0;
+  while (i < text.length) {
+    const hit = low.indexOf(nl, i);
+    if (hit < 0) { out += escapeHtml(text.slice(i)); break; }
+    out += escapeHtml(text.slice(i, hit))
+      + '<mark class="st-hl">' + escapeHtml(text.slice(hit, hit + needle.length)) + '</mark>';
+    i = hit + needle.length;
+  }
+  return out;
+}
+
+function tabRowHtml(t, gLabel = '', needle = '') {
   const url = t.url || '';
+  const title = t.title || url;
   const notes = notesText(t);
+  const titleHit = needle && title.toLowerCase().includes(needle);
+  const urlHit = needle && url.toLowerCase().includes(needle);
+  // 网址命中而标题没命中：网址栏改显完整网址并高亮命中段——
+  // 否则行上只有域名，用户看不出这一行为什么被搜出来
+  const showFullUrl = Boolean(needle) && urlHit && !titleHit;
   const prefix = gLabel ? `<span class="st-filter-src" title="来自分组：${escapeHtml(gLabel)}">🏷 ${escapeHtml(gLabel)} · </span>` : '';
   return `
     <div class="vrow tg-row" data-tid="${t.id}" data-url="${escapeHtml(url)}">
       <input type="checkbox" class="st-sel st-tab-sel" data-tid="${t.id}" ${selectedTabs.has(t.id) ? 'checked' : ''} title="选中该标签；长按可拖拽（跨组放置）">
       <img class="vicon" src="${escapeHtml(faviconUrl(url || 'about:blank'))}" alt="" loading="lazy" decoding="async" fetchpriority="low">
       <div class="vmain">
-        <span class="vtitle st-open" title="${escapeHtml(url)}">${prefix}${escapeHtml(t.title || url)}</span>
-        <span class="vurl">${escapeHtml(hostOf(url))}${notes ? ' · ✎ ' + escapeHtml(notes.split('\n')[0]) : ''}</span>
+        <span class="vtitle st-open" title="${escapeHtml(url)}">${prefix}${needle ? stHl(title, needle) : escapeHtml(title)}</span>
+        <span class="vurl"${showFullUrl ? ' title="' + escapeHtml(url) + '"' : ''}>${showFullUrl ? stHl(url, needle) : escapeHtml(hostOf(url))}${notes ? ' · ✎ ' + escapeHtml(notes.split('\n')[0]) : ''}</span>
       </div>
       <button class="st-act" data-act="tabNotes" data-id="${t.id}" title="编辑备注（导出 HTML/复制时会带上）">✎</button>
       <button class="st-act" data-act="pin" data-id="${t.id}" title="置顶到组头部">📌</button>
@@ -203,7 +228,7 @@ function groupHtml(g, needle = '') {
     : kids.filter((t) => ((t.title || '') + '\n' + (t.url || '')).toLowerCase().includes(needle));
   // 固定区视觉边界(A5):置顶行之后画一条分隔线,拖拽时用户能看出"落进固定区"的界线
   const rows = visibleKids.map((t, i) => {
-    const row = tabRowHtml(t);
+    const row = tabRowHtml(t, '', needle);
     return (!needle && i === pinnedCount && pinnedCount > 0 && pinnedCount < kids.length)
       ? '<div class="st-pin-line" title="📌 固定区边界：此线之上的标签为置顶"></div>' + row
       : row;
@@ -538,7 +563,7 @@ function filterListHtml(byId) {
   }
   const cmp = filterMode === 'site' ? cmpBySite : cmpByTitle;
   tabs.sort((a, b) => cmp(a.t, b.t));
-  const rows = tabs.map(({ t, gLabel }) => tabRowHtml(t, gLabel)).join('');
+  const rows = tabs.map(({ t, gLabel }) => tabRowHtml(t, gLabel, needle)).join('');
   return `
     <div class="tg-group st-group st-filter-head">
       <div class="tg-group-head">
@@ -625,6 +650,27 @@ async function paint() {
   }
   const t1 = performance.now();
   ui.byId = byId;
+  // "库被外部清空"检测（每页一次）：IndexedDB 可能被 Chrome「清除 Cookie 及
+  // 站点数据」、清理软件、磁盘满驱逐整库删掉。历史上有过数据而现在是全空的
+  // （三个根 + 深层标签数 = 0），大概率就是被清了——主动提醒从云端快照恢复，
+  // 不要让用户以为数据"自己蒸发"而不知道有备份可救。
+  if (!emptyWarnChecked) {
+    emptyWarnChecked = true;
+    try {
+      const deep = await countStashTabsDeep(['root', 'trash', 'quickList']);
+      const total = [...deep.values()].reduce((s, n) => s + n, 0);
+      if (total === 0) {
+        const { stashHadData } = await chrome.storage.local.get('stashHadData');
+        if (stashHadData) {
+          await chrome.storage.local.remove('stashHadData'); // 只提醒一次
+          toast('检测到标签收纳数据为空（可能被浏览器清理或误删）。'
+            + '如已配置云同步，请到 设置 → 云同步 → 快照列表「恢复」找回最近备份。', true);
+        }
+      } else {
+        chrome.storage.local.set({ stashHadData: true }).catch(() => {});
+      }
+    } catch { /* 检测失败不影响正常渲染 */ }
+  }
   // 侧栏计数：非当前文件夹的组/回收站的数量走索引 count（范围 byId 里没有
   // 它们的 tab，直接数 childIds 会恒显示 0——点进对象重绘后才变对）。
   await refreshCounts(byId);
@@ -656,8 +702,28 @@ function detachGroups() {
   return frag;
 }
 
+/** 清掉搜索词与筛选态。切换视图 / 点左侧标签组定位时调用：
+ *  searchNeedle 是全局过滤词，残留会让"点'标签'页签看全部"永远停在搜索结果；
+ *  viewCache 里带 frag 的条目是过滤态渲染出的 DOM（切走时摘下的节点原样保留），
+ *  只要清理发生过就一并作废，否则切回该视图时旧搜索结果会原样挂回。 */
+function resetViewFilters() {
+  if (!searchNeedle && !filterMode) return;
+  searchNeedle = '';
+  filterMode = '';
+  if (ui.search) ui.search.value = '';
+  viewCache.forEach((c, k) => { if (c.frag) viewCache.delete(k); });
+}
+
 async function switchFolderTo(target) {
-  if (target === currentFolder) return;
+  if (target === currentFolder) {
+    // 点当前视图的页签/条目（如搜索后再点"标签"）= 清残留回到完整视图；
+    // 无残留时保持原行为（return 不动）
+    if (searchNeedle || filterMode) {
+      resetViewFilters();
+      repaintFromCache();
+    }
+    return;
+  }
   const seq = ++switchSeq; // 快速连点防竞态：过期加载静默丢弃
   // 记住当前视图的滚动位置（主区 window + 侧栏列表内部）：两个视图高度不同，
   // 绝对 scrollY 原样套用会被钳制/落点随机，来回切换就"抖动闪动没有稳定感"。
@@ -680,6 +746,7 @@ async function switchFolderTo(target) {
     }
   }
   currentFolder = target;
+  resetViewFilters(); // 带着搜索词/筛选态切视图：残留会让新视图只显示过滤子集
   selected.clear();
   selectedTabs.clear();
   const c = viewCache.get(target);
@@ -1020,6 +1087,17 @@ async function copyGroup(gid, fmt) {
   const text = await buildGroupClipboard(gid, fmt);
   await navigator.clipboard.writeText(text);
   toast(fmt === 'markdown' ? '已复制为 Markdown' : '已复制为 标题+网址 文本');
+}
+
+/** 右键"复制链接"：把标签行网址写入剪贴板（回收站行也可用，纯只读操作）。 */
+async function copyTabUrl(url) {
+  if (!url) { toast('该条目没有网址', true); return; }
+  try {
+    await navigator.clipboard.writeText(url);
+    toast('已复制链接');
+  } catch (e) {
+    toast('复制失败：' + (e?.message || e), true);
+  }
 }
 
 /** 「打开后消除」生效后就地移除标签行（组空连组一起移除），与手动 × 删除的视觉一致。 */
@@ -2291,6 +2369,12 @@ let locateFx = null;
 async function locateGroupEntry(gid) {
   const g = ui.byId?.get(gid);
   if (!g) return;
+  // 搜索/筛选残留下点组：目标组可能被过滤词藏掉（querySelector 落空 = 点了
+  // 没反应）。先清残留重绘，保证主区是完整分组视图再定位
+  if (searchNeedle || filterMode) {
+    resetViewFilters();
+    repaintFromCache();
+  }
   // 回收站里的组父节点就是 'trash'：直接切到回收站视图定位（此前错回 root，
   // 组不在 root 下，定位永远落空）
   const parent = g.parentIds?.[0] || 'root';
@@ -2651,12 +2735,16 @@ function bindEvents() {
       const t = ui.byId?.get(tid);
       // 回收站里的行只读：右键仅允许打开（置顶/备注/删除对回收站数据有歧义）
       if (currentFolder === 'trash') {
-        showMenu(e.target, [{ label: '🌐 打开', run: () => openTabAndPrune(tid) }]);
+        showMenu(e.target, [
+          { label: '🌐 打开', run: () => openTabAndPrune(tid) },
+          { label: '🔗 复制链接', run: () => copyTabUrl(row.dataset.url) },
+        ]);
         void t;
         return;
       }
       showMenu(e.target, [
         { label: '🌐 打开', run: () => openTabAndPrune(tid) },
+        { label: '🔗 复制链接', run: () => copyTabUrl(row.dataset.url) },
         { label: '📌 置顶到组头部', run: () => onAction('pin', tid).catch(actFail) },
         { label: '✎ 备注…', run: () => onAction('tabNotes', tid).catch(actFail) },
         { sep: true },
@@ -2903,7 +2991,7 @@ const SNAPSHOT_KEY = 'stashSnapshotV1';
 /** 快照的渲染逻辑版本：渲染/计数逻辑改动时 +1。旧版本快照直接弃用（下次打开
  *  走全量首绘）——否则上次保存的 HTML 会把旧逻辑烤死的显示（如修复前恒显 0
  *  的侧栏计数）继续展示，而"无变更"校对路径按设计不会重绘，坏显示会一直留传。 */
-const SNAP_VER = 6; // v6：左栏组条目加展开占位对齐 + 右侧标签数
+const SNAP_VER = 7; // v7：快照不再保存搜索态（v6 及以前的快照可能含搜索结果 DOM，作废）
 const T_MODULE = Math.round(performance.now()); // 模块链求值时刻（相对页面打开）
 let openLogDone = false;   // 打开耗时只打一次日志
 let renderSnapInfo = '';   // 本次进入的快照命中情况
@@ -3016,6 +3104,9 @@ async function saveSnapshot(force = false) {
     if (!built || !container || !ui?.byId) return;
     if (snapFillActive) return; // 分块补注进行中：#stGroups 只有一部分，存进去就是半张表
     if (filterMode) return; // 筛选视图是临时视图：不覆盖快照，下次打开仍是分组视图
+    // 搜索同理：搜索结果只是过滤视图，存进快照会让刷新后永远停在旧搜索结果
+    // （恢复时 searchNeedle 已归零，任何清理逻辑都判定"无残留"而不重绘）
+    if (searchNeedle) return;
     const now = Date.now();
     if (!force && now - lastSnapSave < 3000) return;
     lastSnapSave = now;

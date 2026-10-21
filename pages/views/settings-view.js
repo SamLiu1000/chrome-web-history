@@ -13,6 +13,10 @@
 
 import { setInnerHTML, escapeHtml } from '../../lib/util.js';
 import { confirmDialog, choiceDialog, formDialog } from '../../lib/dialog.js';
+import {
+  getBackupState, pickBackupDir, clearBackupDir,
+  requestBackupPermission, runLocalBackup,
+} from '../../lib/local-backup.js';
 import { toast } from '../dashboard.js';
 
 function sendD1(msg) {
@@ -154,6 +158,14 @@ async function renderSyncCard(host) {
         </div>
       </details>
 
+      <div class="setting-row">
+        <div>
+          <div>自动同步到云</div>
+          <div class="desc">标签收纳有新增或改动后约 1 分钟自动上传为云端快照（只上传，不下载，不会覆盖本机）。云端始终保有一份较新的本机数据，换设备或「同步到本地」失误时不易丢。</div>
+        </div>
+        <label class="switch"><input type="checkbox" id="d1AutoPush" ${cfg.autoPush !== false ? 'checked' : ''}><span class="track"></span></label>
+      </div>
+
       <div class="set-row">
         <div class="set-row-main">
           <div class="set-row-title">手动同步</div>
@@ -292,6 +304,17 @@ async function renderSyncCard(host) {
     toast(cfg.keepOldSnapshots
       ? '快照名称已保存。云端快照名会在下次「同步到云」上传后更新；已开启"改名保留旧快照"，旧名快照会保留在云端列表里。'
       : '快照名称已保存。云端快照名会在下次「同步到云」上传后更新，旧名快照会自动清理。');
+    await renderSyncCard(host);
+  });
+
+  // 自动同步到云开关（autoPush，默认开）：变更后约 1 分钟自动上传（仅 push）
+  host.querySelector('#d1AutoPush').addEventListener('change', async (e) => {
+    const on = e.target.checked;
+    const sr = await sendD1({ type: 'd1SyncSaveConfig', config: { autoPush: on } });
+    if (sr.ok) toast(on
+      ? '已开启：标签收纳变更后约 1 分钟自动上传到云（仅上传，不覆盖本机）'
+      : '已关闭：只保留手动「同步到云」');
+    else toast('保存失败：' + sr.error, true);
     await renderSyncCard(host);
   });
 
@@ -470,6 +493,72 @@ async function renderSyncCard(host) {
   });
 }
 
+// ---------------------------------------------------------------- 本地磁盘备份
+
+async function renderLocalBackupCard(host) {
+  const st = await getBackupState();
+  const permLabel = !st.dirName ? '' : st.permission === 'granted'
+    ? '<span style="color:var(--ok,#2e7d32);">已授权</span>'
+    : st.permission === 'denied'
+      ? '<span style="color:#c62828;">已拒绝（请在浏览器站点权限里恢复）</span>'
+      : '<span style="color:#b26a00;">待重新授权（浏览器重启后失效，属正常）</span>';
+  setInnerHTML(host, `
+    <div class="set-row">
+      <div class="set-row-main">
+        <div class="set-row-title">本地磁盘备份</div>
+        <div class="set-row-desc">选择一个文件夹，插件自动往里写两份「总备份」格式文件（恢复就用上方"导入总备份"选文件，无需其它入口）：web-history-backup.json 收纳+书签，变更后约 10 分钟更新；web-history-full-backup.json 完整版（含全部浏览历史，文件大），每天自动更新一次。本文件夹在浏览器管理范围之外，清理软件和"清除站点数据"都碰不到。</div>
+      </div>
+    </div>
+    <div class="set-row">
+      <div class="set-row-main">
+        <div class="set-row-title">备份文件夹</div>
+        <div class="set-row-desc">${st.dirName
+          ? `已选择：${escapeHtml(st.dirName)} · 权限：${permLabel}<br>收纳+书签：${fmtTime(st.lastBackup)} · 完整（含历史）：${fmtTime(st.lastFullBackup)}${st.lastError ? `<br><span style="color:#c62828;">上次失败：${escapeHtml(st.lastError)}</span>` : ''}`
+          : '尚未选择。选择后立即生成收纳+书签备份，完整版当天自动生成。'}</div>
+      </div>
+      <div class="set-row-ctrl">
+        ${st.dirName && st.permission === 'prompt' ? '<button class="btn primary btn-sm" id="lbReauth">重新授权</button>' : ''}
+        ${st.dirName ? '<button class="btn btn-sm" id="lbRun">立即备份</button>' : ''}
+        <button class="btn ${st.dirName ? '' : 'primary'} btn-sm" id="lbPick">${st.dirName ? '更换文件夹…' : '选择备份文件夹…'}</button>
+        ${st.dirName ? '<button class="btn danger btn-sm" id="lbClear">解除绑定</button>' : ''}
+      </div>
+    </div>
+  `);
+  host.querySelector('#lbPick').addEventListener('click', async () => {
+    const r = await pickBackupDir(); // 必须在点击手势内调用
+    if (r.cancelled) return;
+    if (!r.ok) { toast('选择失败：' + r.error, true); return; }
+    toast(`备份文件夹已设为「${r.dirName}」，开始首次备份…`);
+    const b = await runLocalBackup();
+    toast(b.ok ? '本地备份完成' : '首次备份失败：' + (b.error || b.reason), !b.ok);
+    await renderLocalBackupCard(host);
+  });
+  const reauth = host.querySelector('#lbReauth');
+  if (reauth) reauth.addEventListener('click', async () => {
+    const r = await requestBackupPermission(); // 必须在点击手势内调用
+    toast(r.ok ? '已重新授权' : '授权未通过：' + (r.error || r.permission), !r.ok);
+    await renderLocalBackupCard(host);
+  });
+  const run = host.querySelector('#lbRun');
+  if (run) run.addEventListener('click', async () => {
+    toast('正在备份到本地…');
+    const b = await runLocalBackup();
+    toast(b.ok ? '本地备份完成（收纳+书签）' : '备份失败：' + (b.error || b.reason), !b.ok);
+    await renderLocalBackupCard(host);
+  });
+  const clear = host.querySelector('#lbClear');
+  if (clear) clear.addEventListener('click', async () => {
+    if (!(await confirmDialog({
+      title: '解除备份文件夹',
+      message: '解除后插件不再往该文件夹写备份（已写入的文件保留不动）。确定解除？',
+      confirmText: '解除', danger: true,
+    }))) return;
+    await clearBackupDir();
+    toast('已解除备份文件夹');
+    await renderLocalBackupCard(host);
+  });
+}
+
 // ---------------------------------------------------------------- 数据边界与同步语义（底部帮助）
 
 function renderHelpPanel(host) {
@@ -525,6 +614,7 @@ export async function render(container) {
         <section class="set-group" id="secFullBackup">
           <div class="set-head">总备份</div>
           <div class="card"><div id="fullBackupHost"></div></div>
+          <div class="card"><div id="localBackupHost"></div></div>
         </section>
 
         <section class="set-group" id="secHistory">
@@ -566,5 +656,6 @@ export async function render(container) {
   await historyView.renderStashTools(container.querySelector('#stashSetHost'));
   syncCardHost = container.querySelector('#syncHost');
   await renderSyncCard(syncCardHost);
+  await renderLocalBackupCard(container.querySelector('#localBackupHost'));
   renderHelpPanel(container.querySelector('#helpHost'));
 }

@@ -6,7 +6,8 @@
 //   （后台预渲染等无 tab 场景记 tabId=null，属"尽力而为"的辅助信息）。
 
 import { initSchema, getSetting, addVisit, applyObservedTitle } from '../lib/db.js';
-import { extractDomain, isValidUrl } from '../lib/util.js';
+import { extractDomain, isValidUrl, ensureStoragePersisted } from '../lib/util.js';
+import { noteLocalChange, noteStartupBackup } from '../lib/local-backup.js';
 import { stashWindowTabs } from '../lib/stash.js';
 import {
   readMirror, writeMirror, readCrashGroups, writeCrashGroups,
@@ -454,10 +455,15 @@ async function reloadPrefs() {
 
 async function init() {
   await initSchema();
+  // 申请持久化存储：否则 IndexedDB 是 best-effort，磁盘紧张/定期维护时会被
+  // Chrome 整库自动清除（"数据突然全部消失"的根因），unlimitedStorage 不豁免驱逐
+  ensureStoragePersisted().catch(() => {});
   await reloadPrefs();
   await ensureLoaded();
   // D1 同步：注册 alarm 与启动定时器（未配置时 runSync 会自行跳过）
   await initD1Sync();
+  // 本地磁盘备份每日兜底（未选择备份文件夹时静默跳过）
+  noteStartupBackup().catch(() => {});
 }
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -495,6 +501,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || !msg.type) return;
   if (msg.type === 'd1SyncChanged') {
     noteChange();
+    // 收纳数据变更 → 本地磁盘备份防抖（选了备份文件夹才生效）
+    noteLocalChange();
     return;
   }
   if (String(msg.type).startsWith('d1Sync')) {
